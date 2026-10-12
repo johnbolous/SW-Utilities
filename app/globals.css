@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root[data-theme="dark"] {
+  --surface: #16252D;
+  --surface-soft: #1E323C;
+  --border: rgba(243, 239, 228, 0.12);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --surface: #FFFFFF;
+  --surface-soft: #EDF0EE;
+  --border: rgba(20, 30, 28, 0.10);
+  color-scheme: light;
+}
+
+body[data-theme="dark"] {
+  background: #0F1B22;
+  color: #F3EFE4;
+}
+
+body[data-theme="light"] {
+  background: #F3F5F3;
+  color: #16211F;
+}
+
+html,
+body {
+  min-height: 100dvh;
+}
+
+/* RTL: mirror horizontal padding/margins that Tailwind's logical-property
+   utilities don't cover automatically at this Tailwind version. */
+[dir="rtl"] .ltr-only {
+  direction: ltr;
+}

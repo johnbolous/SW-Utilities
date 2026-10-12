@@ -1,0 +1,23 @@
+# Supabase CLI local development config.
+# `supabase start` gives a local Postgres + Storage + Studio that mirrors
+# production. Supabase Auth is disabled — this project uses a custom
+# username/password auth system (see lib/auth/) instead.
+
+project_id = "silicon-waha-utilities-portal"
+
+[api]
+enabled = true
+port = 54321
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+[storage]
+enabled = true
+
+[auth]
+enabled = false
