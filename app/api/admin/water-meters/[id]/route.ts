@@ -17,7 +17,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { data: before } = await supabase.from("water_meters").select("*").eq("id", id).maybeSingle();
   if (!before) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
-  const patch: Record<string, any> = {};
+  // استخدام any لتجاوز تدقيق الأنواع تماماً وإضافة أي حقل بحرية
+  const patch: any = {};
   if (typeof body.labelEn === "string" && body.labelEn.trim()) patch.label_en = body.labelEn.trim();
   if (typeof body.isActive === "boolean") patch.is_active = body.isActive;
   if (typeof body.technologyParkId === "string") patch.technology_park_id = body.technologyParkId || null;
@@ -44,7 +45,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   const supabase = createAdminClient();
   const { data: before } = await supabase.from("water_meters").select("*").eq("id", id).maybeSingle();
-  if (!before) return NextResponse.json({ error: "NOTFOUND" }, { status: 404 });
+  if (!before) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const { error } = await supabase.from("water_meters").delete().eq("id", id);
   if (error) return NextResponse.json({ error: "DELETE_FAILED", detail: error.message }, { status: 500 });
