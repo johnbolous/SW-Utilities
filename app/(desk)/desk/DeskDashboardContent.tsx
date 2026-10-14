@@ -18,16 +18,16 @@ function calculateMonthlyConsumption(readings: any[]) {
   if (!readings || readings.length === 0) return {};
 
   const sortedReadings = [...readings].sort((a, b) => {
-    const dateA = new Date(a.reading_date || a.timestamp || a.created_at || a.date);
-    const dateB = new Date(b.reading_date || b.timestamp || b.created_at || b.date);
+    const dateA = new Date(a?.reading_date || a?.timestamp || a?.created_at || a?.date || 0);
+    const dateB = new Date(b?.reading_date || b?.timestamp || b?.created_at || b?.date || 0);
     return dateA.getTime() - dateB.getTime();
   });
 
   const groupedByMonth: { [key: string]: any[] } = {};
   sortedReadings.forEach(r => {
-    const rawDate = r.reading_date || r.timestamp || r.created_at || r.date;
+    const rawDate = r?.reading_date || r?.timestamp || r?.created_at || r?.date;
     if (!rawDate) return;
-    const monthKey = rawDate.slice(0, 7); // "YYYY-MM"
+    const monthKey = String(rawDate).slice(0, 7); // "YYYY-MM"
     
     if (!groupedByMonth[monthKey]) {
       groupedByMonth[monthKey] = [];
@@ -38,17 +38,22 @@ function calculateMonthlyConsumption(readings: any[]) {
   const monthKeys = Object.keys(groupedByMonth).sort();
   const monthlyResults: { [key: string]: number } = {};
   
-  const getVal = (item: any) => Number(item.current_value ?? item.reading ?? item.reading_value ?? item.consumption ?? 0);
+  const getVal = (item: any) => Number(item?.current_value ?? item?.reading ?? item?.reading_value ?? item?.consumption ?? 0);
 
   let lastKnownReading: number | null = null;
   let lastReadingDate: Date | null = null;
 
   monthKeys.forEach((monthKey) => {
     const monthReadings = groupedByMonth[monthKey];
-    if (!monthReadings || monthReadings.length === 0) return;
-    const firstVal = getVal(monthReadings[0]);
-    const lastVal = getVal(monthReadings[monthReadings.length - 1]);
-    const firstDate = new Date(monthReadings[0].reading_date || monthReadings[0].timestamp || monthReadings[0].created_at || monthReadings[0].date);
+    if (!monthReadings || !Array.isArray(monthReadings) || monthReadings.length === 0) return;
+
+    const firstItem = monthReadings[0];
+    const lastItem = monthReadings[monthReadings.length - 1];
+    if (!firstItem || !lastItem) return;
+
+    const firstVal = getVal(firstItem);
+    const lastVal = getVal(lastItem);
+    const firstDate = new Date(firstItem.reading_date || firstItem.timestamp || firstItem.created_at || firstItem.date);
 
     let monthConsumption = 0;
 
@@ -60,7 +65,6 @@ function calculateMonthlyConsumption(readings: any[]) {
         if (diffMonths <= 1) {
           monthConsumption = lastVal - lastKnownReading;
         } else {
-          // في حال وجود فجوة لأكثر من شهر (شهر فارغ بالكامل)، لا نقوم بالدمج الخاطئ
           monthConsumption = 0;
         }
       } else {
@@ -72,8 +76,9 @@ function calculateMonthlyConsumption(readings: any[]) {
     monthlyResults[monthKey] = monthConsumption;
 
     lastKnownReading = lastVal;
-    const lastItem = monthReadings[monthReadings.length - 1];
-    lastReadingDate = new Date(lastItem.reading_date || lastItem.timestamp || lastItem.created_at || lastItem.date);
+    if (lastItem) {
+      lastReadingDate = new Date(lastItem.reading_date || lastItem.timestamp || lastItem.created_at || lastItem.date);
+    }
   });
 
   return monthlyResults;
