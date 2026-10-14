@@ -5,7 +5,9 @@ import { hashPassword, isPasswordStrongEnough } from "@/lib/auth/password";
 import { destroyAllSessionsForUser } from "@/lib/auth/session";
 import { validateParkAssignment, applyParkAssignment } from "@/lib/admin/syncUserParkAccess";
 import { isUserRole } from "@/lib/utils/enumGuards";
-import type { Database, UserRole } from "@/types/database";
+import type { Database } from "@/types/database";
+
+type UserRole = string;
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const guard = await requireRole(["admin"]);
