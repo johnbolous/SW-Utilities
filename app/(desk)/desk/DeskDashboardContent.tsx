@@ -45,6 +45,7 @@ function calculateMonthlyConsumption(readings: any[]) {
 
   monthKeys.forEach((monthKey) => {
     const monthReadings = groupedByMonth[monthKey];
+    if (!monthReadings || monthReadings.length === 0) return;
     const firstVal = getVal(monthReadings[0]);
     const lastVal = getVal(monthReadings[monthReadings.length - 1]);
     const firstDate = new Date(monthReadings[0].reading_date || monthReadings[0].timestamp || monthReadings[0].created_at || monthReadings[0].date);
