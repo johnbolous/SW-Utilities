@@ -29,7 +29,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: "NOTHING_TO_UPDATE" }, { status: 400 });
 
-  const { data: after, error } = await supabase.from("water_meters").update(patch as any).eq("id", id).select().single();
+  const { data: after, error } = await supabase.from("water_meters").update(patch).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: "UPDATE_FAILED", detail: error.message }, { status: 500 });
 
   await logAudit(supabase, { actorId: admin.id, action: "water_meter_updated", tableName: "water_meters", recordId: id, oldValue: before, newValue: after });
@@ -44,7 +44,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   const supabase = createAdminClient();
   const { data: before } = await supabase.from("water_meters").select("*").eq("id", id).maybeSingle();
-  if (!before) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (!before) return NextResponse.json({ error: "NOTFOUND" }, { status: 404 });
 
   const { error } = await supabase.from("water_meters").delete().eq("id", id);
   if (error) return NextResponse.json({ error: "DELETE_FAILED", detail: error.message }, { status: 500 });
