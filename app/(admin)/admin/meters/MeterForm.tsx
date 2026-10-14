@@ -83,7 +83,8 @@ export function MeterForm({
     const validBldgs = buildings.filter((b) => b.technology_park_id === newParkId);
     const isCurrentBuildingValid = validBldgs.some((b) => b.id === buildingId);
     if (!isCurrentBuildingValid) {
-    setBuildingId(validBldgs[0]?.id ?? "");    }
+      setBuildingId(validBldgs[0]?.id ?? "");
+    }
   };
 
   // Fetch floors when buildingId changes
@@ -115,7 +116,6 @@ export function MeterForm({
               roomCode: roomCode || null,
               sortOrder: Number(sortOrder),
               readingFrequency: frequency,
-              // التعديل هنا: إرسال null إذا كان يومي
               monthlyReadingDay: frequency === "MONTHLY" ? Number(monthlyDay) : null,
             }),
           })
@@ -130,7 +130,6 @@ export function MeterForm({
               labelEn,
               meterCode,
               readingFrequency: frequency,
-              // التعديل هنا: إرسال null إذا كان يومي
               monthlyReadingDay: frequency === "MONTHLY" ? Number(monthlyDay) : null,
               sortOrder: Number(sortOrder),
             }),
