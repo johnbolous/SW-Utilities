@@ -186,9 +186,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     }
   }, [activeTab, data]);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr: string = new Date().toISOString().substring(0, 10);
   const currentMonthKey = todayStr.slice(0, 7); // "YYYY-MM"
-  const thirtyDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const thirtyDaysAgoStr: string = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
 
   const [demandTimeFrame, setDemandTimeFrame] = useState<"day" | "week" | "month" | "year">("week");
   const [demandStartDate, setDemandStartDate] = useState(thirtyDaysAgoStr);
@@ -265,17 +265,17 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") => {
     setDemandTimeFrame(frame);
     const now = Date.now();
-    const end = new Date(now).toISOString().slice(0, 10);
+    const end: string = new Date(now).toISOString().substring(0, 10);
     let start = end;
 
     if (frame === "day") {
       start = end;
     } else if (frame === "week") {
-      start = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      start = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
     } else if (frame === "month") {
-      start = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      start = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
     } else if (frame === "year") {
-      start = new Date(now - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      start = new Date(now - 365 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
     }
 
     setDemandStartDate(start);
@@ -285,17 +285,17 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const handleConsumptionTimeFrameChange = (frame: "day" | "week" | "month" | "year") => {
     setConsumptionTimeFrame(frame);
     const now = Date.now();
-    const end = new Date(now).toISOString().slice(0, 10);
+    const end: string = new Date(now).toISOString().substring(0, 10);
     let start = end;
 
     if (frame === "day") {
       start = end;
     } else if (frame === "week") {
-      start = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      start = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
     } else if (frame === "month") {
-      start = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      start = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
     } else if (frame === "year") {
-      start = new Date(now - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      start = new Date(now - 365 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
     }
 
     setConsumptionStartDate(start);
@@ -398,7 +398,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             fetchedPhotos.push({
               id: file?.id || filePath,
               url: publicUrlData.publicUrl,
-              created_at: dateStr || new Date().toISOString().slice(0, 10),
+              created_at: dateStr || new Date().toISOString().substring(0, 10),
               name: file.name
             });
           }
@@ -830,7 +830,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     let curr = new Date(startDate);
     const last = new Date(endDate);
     while (curr <= last) {
-      dates.push(curr.toISOString().slice(0, 10));
+      dates.push(curr.toISOString().substring(0, 10));
       curr.setDate(curr.getDate() + 1);
     }
     return dates.reverse();
