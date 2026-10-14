@@ -69,14 +69,14 @@ export default async function DeskPage() {
   ] = await Promise.all([
     supabase.from("floors").select("id", { count: "exact", head: true }).in("building_id", safeBuildingIds),
     supabase
-      .from("meters")
+      .from("meters" as any)
       .select("id, building_id, category, meter_code, label_en, label_ar, tenant_name")
       .in("building_id", safeBuildingIds),
     supabase
-      .from("water_meters")
+      .from("water_meters" as any)
       .select("id, building_id, meter_code, label_en, label_ar")
       .in("building_id", safeBuildingIds),
-    supabase.from("solar_inverters").select("*"),
+    supabase.from("solar_inverters" as any).select("*"),
   ]);
 
   if (elecError) {
