@@ -60,7 +60,6 @@ export default async function DeskPage() {
   const { data: buildings } = await supabase.from("buildings").select("id, technology_park_id").in("technology_park_id", safeParkIds);
   const buildingIds = ((buildings as any[]) ?? []).map((b) => b.id).filter((id): id is string => Boolean(id));
   const safeBuildingIds = buildingIds.length ? buildingIds : ["00000000-0000-0000-0000-000000000000"];
-  const parkIdsList = safeParkIds.join(",");
 
   const [
     { count: floorCount },
@@ -73,7 +72,10 @@ export default async function DeskPage() {
       .from("meters")
       .select("id, building_id, category, meter_code, label_en, label_ar, tenant_name")
       .in("building_id", safeBuildingIds),
-    supabase.from("water_meters").select("id, building_id, technology_park_id, meter_code, label_en, label_ar").or(`building_id.in.(${safeBuildingIds.join(",")}),technology_park_id.in.(${parkIdsList})`),
+    supabase
+      .from("water_meters")
+      .select("id, building_id, meter_code, label_en, label_ar")
+      .in("building_id", safeBuildingIds),
     supabase.from("solar_inverters").select("*"),
   ]);
 
