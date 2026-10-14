@@ -18,7 +18,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const labelEn = typeof body.labelEn === "string" ? body.labelEn.trim() : undefined;
   const readingFrequency = body.readingFrequency;
   
-  // التعديل هنا: منع تحويل الـ null إلى الرقم 0 لكي يتوافق مع قاعدة البيانات
   const monthlyReadingDay = 
     body.monthlyReadingDay !== undefined 
       ? (body.monthlyReadingDay === null ? null : Number(body.monthlyReadingDay)) 
@@ -38,7 +37,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("meters")
-    .update(updateData)
+    .update(updateData as any) // حل مشكلة تعارض الأنواع مع TypeScript
     .eq("id", id)
     .select()
     .single();
