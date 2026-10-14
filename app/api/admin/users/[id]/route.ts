@@ -39,7 +39,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         return NextResponse.json({ error: "LAST_ADMIN_CANNOT_DEMOTE_SELF" }, { status: 400 });
       }
     }
-    patch.role = newRole;
+    patch.role = newRole as any;
   }
 
   if (typeof body.isActive === "boolean") {
