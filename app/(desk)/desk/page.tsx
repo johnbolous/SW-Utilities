@@ -26,7 +26,7 @@ export default async function DeskPage() {
   if (user.role === "admin" || dbUser?.all_parks_access) {
     const { data: allParks } = await supabase.from("technology_parks").select("id, name");
     if (allParks) {
-      targetParkIds = allParks.map((p) => p.id);
+      targetParkIds = allParks.map((p) => p.id).filter((id): id is string => Boolean(id));
     }
   } else {
     const { data: accessRows } = await supabase
@@ -35,7 +35,7 @@ export default async function DeskPage() {
       .eq("user_id", user.id);
 
     if (accessRows && accessRows.length > 0) {
-      targetParkIds = accessRows.map((r) => r.park_id).filter(Boolean);
+      targetParkIds = accessRows.map((r) => r.park_id).filter((id): id is string => Boolean(id));
     }
   }
 
@@ -52,13 +52,13 @@ export default async function DeskPage() {
     if (parksData && parksData.length > 0) {
       parksDataMap = parksData;
       parkNames = parksData.map((p) => p.name || "Park");
-      finalParkIds = parksData.map((p) => p.id);
+      finalParkIds = parksData.map((p) => p.id).filter((id): id is string => Boolean(id));
     }
   }
 
   const safeParkIds = finalParkIds.length ? finalParkIds : ["00000000-0000-0000-0000-000000000000"];
   const { data: buildings } = await supabase.from("buildings").select("id, technology_park_id").in("technology_park_id", safeParkIds);
-  const buildingIds = (buildings ?? []).map((b) => b.id);
+  const buildingIds = (buildings ?? []).map((b) => b.id).filter((id): id is string => Boolean(id));
   const safeBuildingIds = buildingIds.length ? buildingIds : ["00000000-0000-0000-0000-000000000000"];
   const parkIdsList = safeParkIds.join(",");
 
@@ -82,12 +82,19 @@ export default async function DeskPage() {
   }
 
   const buildingToParkMap = new Map<string, string>();
-  (buildings ?? []).forEach((b) => buildingToParkMap.set(b.id, b.technology_park_id));
+  (buildings ?? []).forEach((b) => {
+    if (b?.id && b?.technology_park_id) {
+      buildingToParkMap.set(b.id, b.technology_park_id);
+    }
+  });
 
   const parkIdToName = new Map<string, string>();
-  parksDataMap.forEach((p) => parkIdToName.set(p.id, p.name));
+  parksDataMap.forEach((p) => {
+    if (p?.id && p?.name) parkIdToName.set(p.id, p.name);
+  });
 
   const getMeterParkId = (item: any) => {
+    if (!item) return null;
     if (item.technology_park_id) return item.technology_park_id;
     if (item.park_id) return item.park_id;
     if (item.building_id) return buildingToParkMap.get(item.building_id) || null;
@@ -104,9 +111,9 @@ export default async function DeskPage() {
     return targetParkIds.includes(parkId) || user.role === "admin" || dbUser?.all_parks_access;
   });
 
-  const safeElecIds = validElecMeters.length ? validElecMeters.map((m) => m.id) : ["00000000-0000-0000-0000-000000000000"];
-  const safeWaterIds = validWaterMeters.length ? validWaterMeters.map((w) => w.id) : ["00000000-0000-0000-0000-000000000000"];
-  const safeSolarIds = validSolarInverters.length ? validSolarInverters.map((s) => s.id) : ["00000000-0000-0000-0000-000000000000"];
+  const safeElecIds = validElecMeters.length ? validElecMeters.map((m) => m.id).filter((id): id is string => Boolean(id)) : ["00000000-0000-0000-0000-000000000000"];
+  const safeWaterIds = validWaterMeters.length ? validWaterMeters.map((w) => w.id).filter((id): id is string => Boolean(id)) : ["00000000-0000-0000-0000-000000000000"];
+  const safeSolarIds = validSolarInverters.length ? validSolarInverters.map((s) => s.id).filter((id): id is string => Boolean(id)) : ["00000000-0000-0000-0000-000000000000"];
 
   const [
     { data: elecReadings },
@@ -181,8 +188,8 @@ export default async function DeskPage() {
 
         return {
           id: m.id,
-          code: m.meter_code || `Meter-${m.id.slice(0, 6)}`,
-          label: m.label_en || m.label_ar || m.meter_code || `Meter-${m.id.slice(0, 6)}`,
+          code: m.meter_code || `Meter-${String(m.id).slice(0, 6)}`,
+          label: m.label_en || m.label_ar || m.meter_code || `Meter-${String(m.id).slice(0, 6)}`,
           tenant: m.tenant_name || "",
           category: m.category || "MEDIUM",
           consumption: todayConsumption,      
@@ -214,8 +221,8 @@ export default async function DeskPage() {
 
         return {
           id: w.id,
-          code: w.meter_code || `Water-${w.id.slice(0, 6)}`,
-          label: w.label_en || w.label_ar || w.meter_code || `Water-${w.id.slice(0, 6)}`,
+          code: w.meter_code || `Water-${String(w.id).slice(0, 6)}`,
+          label: w.label_en || w.label_ar || w.meter_code || `Water-${String(w.id).slice(0, 6)}`,
           consumption: todayConsumption,
           totalConsumption,
         };
@@ -245,8 +252,8 @@ export default async function DeskPage() {
 
         return {
           id: s.id,
-          code: s.inverter_code || s.code || `Solar-${s.id.slice(0, 6)}`,
-          label: s.label_en || s.label_ar || s.inverter_code || s.code || `Solar-${s.id.slice(0, 6)}`,
+          code: s.inverter_code || s.code || `Solar-${String(s.id).slice(0, 6)}`,
+          label: s.label_en || s.label_ar || s.inverter_code || s.code || `Solar-${String(s.id).slice(0, 6)}`,
           yield: todayYield,
           totalYield,
         };
@@ -264,7 +271,6 @@ export default async function DeskPage() {
     };
   });
 
-  // تجميع كل البيانات لتسليمها لـ DeskDashboardContent
   const dashboardPayload = {
     parkNames,
     summary: {
