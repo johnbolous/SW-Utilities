@@ -71,8 +71,8 @@ export default async function DeskPage() {
     supabase.from("floors").select("id", { count: "exact", head: true }).in("building_id", safeBuildingIds),
     supabase
       .from("meters")
-      .select("id, building_id, technology_park_id, category, meter_code, label_en, label_ar, tenant_name")
-      .or(`building_id.in.(${safeBuildingIds.join(",")}),technology_park_id.in.(${parkIdsList})`),
+      .select("id, building_id, category, meter_code, label_en, label_ar, tenant_name")
+      .in("building_id", safeBuildingIds),
     supabase.from("water_meters").select("id, building_id, technology_park_id, meter_code, label_en, label_ar").or(`building_id.in.(${safeBuildingIds.join(",")}),technology_park_id.in.(${parkIdsList})`),
     supabase.from("solar_inverters").select("*"),
   ]);
