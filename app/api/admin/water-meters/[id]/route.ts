@@ -3,7 +3,6 @@ import { requireRole } from "@/lib/auth/requireRole";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/admin/audit";
 import { isReadingFrequency } from "@/lib/utils/enumGuards";
-import type { Database } from "@/types/database";
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireRole(["admin"]);
@@ -18,7 +17,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { data: before } = await supabase.from("water_meters").select("*").eq("id", id).maybeSingle();
   if (!before) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
-  const patch: Database["public"]["Tables"]["water_meters"]["Update"] = {};
+  const patch: Record<string, any> = {};
   if (typeof body.labelEn === "string" && body.labelEn.trim()) patch.label_en = body.labelEn.trim();
   if (typeof body.isActive === "boolean") patch.is_active = body.isActive;
   if (typeof body.technologyParkId === "string") patch.technology_park_id = body.technologyParkId || null;
@@ -30,7 +29,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: "NOTHING_TO_UPDATE" }, { status: 400 });
 
-  const { data: after, error } = await supabase.from("water_meters").update(patch).eq("id", id).select().single();
+  const { data: after, error } = await supabase.from("water_meters").update(patch as any).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: "UPDATE_FAILED", detail: error.message }, { status: 500 });
 
   await logAudit(supabase, { actorId: admin.id, action: "water_meter_updated", tableName: "water_meters", recordId: id, oldValue: before, newValue: after });
