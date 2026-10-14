@@ -72,7 +72,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const effectiveRole: UserRole = newRole ?? before.role;
   let parkValidation: ReturnType<typeof validateParkAssignment> | null = null;
   if (body.parkIds !== undefined || body.allParksAccess !== undefined || newRole) {
-    parkValidation = validateParkAssignment({ role: effectiveRole, parkIds: body.parkIds, allParksAccess: body.allParksAccess });
+    parkValidation = validateParkAssignment({ role: effectiveRole as any, parkIds: body.parkIds, allParksAccess: body.allParksAccess });
     if (!parkValidation.ok) return NextResponse.json({ error: parkValidation.error }, { status: 400 });
     patch.all_parks_access = parkValidation.allParksAccess;
   }
