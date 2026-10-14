@@ -83,8 +83,7 @@ export function MeterForm({
     const validBldgs = buildings.filter((b) => b.technology_park_id === newParkId);
     const isCurrentBuildingValid = validBldgs.some((b) => b.id === buildingId);
     if (!isCurrentBuildingValid) {
-      setBuildingId(validBldgs.length > 0 ? validBldgs[0].id : "");
-    }
+    setBuildingId(validBldgs[0]?.id ?? "");    }
   };
 
   // Fetch floors when buildingId changes
