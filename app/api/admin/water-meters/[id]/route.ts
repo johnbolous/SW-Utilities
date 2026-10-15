@@ -19,13 +19,13 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") || "";
 
   const supabase = createAdminClient();
-  let query = supabase.from("water_meters").select("*, buildings(id, name, technology_park_id)", { count: "exact" });
+  let query = supabase.from("water_meters" as any).select("*, buildings(id, name, technology_park_id)", { count: "exact" });
 
   if (q) query = query.or(`label_en.ilike.%${q}%,meter_code.ilike.%${q}%`);
   
   if (parkId) {
     const { data: parkBuildings } = await supabase
-      .from("buildings")
+      .from("buildings" as any)
       .select("id")
       .eq("technology_park_id", parkId);
     
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
   };
 
   const insertResult = await supabase
-    .from("water_meters")
+    .from("water_meters" as any)
     .insert(insertData as any)
     .select()
     .single();
