@@ -92,11 +92,6 @@ export async function POST(request: NextRequest) {
     is_active: true,
   };
 
-  const { data, error } = await supabase
-    .from("water_meters")
-    .update ? supabase.from("water_meters").insert(insertData as any).select().single() : null;
-
-  // الطريقة البديلة المضمونة للإدخال مع تجاوز تدقيق الأنواع الصارم
   const insertResult = await supabase
     .from("water_meters")
     .insert(insertData as any)
