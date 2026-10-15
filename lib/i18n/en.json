@@ -87,7 +87,7 @@
   "photoUploadFailed": "Photo upload failed — please try again.",
   "noPhotoYet": "No photo captured yet.",
   "submitDisabledNoPhoto": "Capture and accept a meter photo to enable saving.",
-  "todayIsFirst": "Today is the 1st of the month — monthly items are visible below.",
+  "todayIsFirst": "If today is the 1st of the month — monthly items will be visible below.",
   "selectReadingTypeFirst": "Select a reading type to begin.",
   "loadingOptions": "Loading…",
   "setupTitle": "Create First Administrator",
