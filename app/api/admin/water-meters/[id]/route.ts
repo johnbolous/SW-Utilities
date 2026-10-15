@@ -19,13 +19,10 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") || "";
 
   const supabase = createAdminClient();
-  
-  // تحويل الاستعلام بالكامل إلى any لقتل أي تدقيق صارم من تايبرسكريبت
-  let query: any = supabase.from("water_meters").select("*, buildings(id, name, technology_park_id)", { count: "exact" });
+  let query: any = supabase.from("meters").select("*, buildings(id, name, technology_park_id)", { count: "exact" });
 
   if (q) query = query.or(`label_en.ilike.%${q}%,meter_code.ilike.%${q}%`);
   
-  // الفلترة بالمنطقة تتم عبر جلب المباني أولاً (وهو المكان الصحيح لـ technology_park_id)
   if (parkId) {
     const { data: parkBuildings } = await (supabase.from("buildings") as any)
       .select("id")
@@ -53,7 +50,7 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    waterMeters: data || [],
+    meters: data || [],
     pagination: {
       page,
       limit,
@@ -74,7 +71,7 @@ export async function POST(request: NextRequest) {
   const buildingId = typeof body.buildingId === "string" ? body.buildingId : "";
   const meterCode = typeof body.meterCode === "string" ? body.meterCode.trim() : "";
   const labelEn = typeof body.labelEn === "string" ? body.labelEn.trim() : "";
-  const type = typeof body.type === "string" ? body.type.trim() : "DRINKING";
+  const type = typeof body.type === "string" ? body.type.trim() : "ELECTRICITY";
   const readingFrequency = isReadingFrequency(body.readingFrequency) ? body.readingFrequency : "MONTHLY";
   const monthlyReadingDay = readingFrequency === "MONTHLY" ? Number(body.monthlyReadingDay) || 1 : null;
 
@@ -94,7 +91,7 @@ export async function POST(request: NextRequest) {
     is_active: true,
   };
 
-  const insertResult = await (supabase.from("water_meters") as any)
+  const insertResult = await (supabase.from("meters") as any)
     .insert(insertData)
     .select()
     .single();
@@ -107,11 +104,11 @@ export async function POST(request: NextRequest) {
 
   await logAudit(supabase, {
     actorId: admin.id,
-    action: "water_meter_created",
-    tableName: "water_meters",
+    action: "meter_created",
+    tableName: "meters",
     recordId: createdData.id || "00000000-0000-0000-0000-000000000000",
     newValue: createdData,
   });
 
-  return NextResponse.json({ waterMeter: createdData }, { status: 201 });
+  return NextResponse.json({ meter: createdData }, { status: 201 });
 }
