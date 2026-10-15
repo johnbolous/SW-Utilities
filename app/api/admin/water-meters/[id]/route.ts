@@ -21,7 +21,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const patch: Database["public"]["Tables"]["water_meters"]["Update"] = {};
   if (typeof body.labelEn === "string" && body.labelEn.trim()) patch.label_en = body.labelEn.trim();
   if (typeof body.isActive === "boolean") patch.is_active = body.isActive;
-  if (typeof body.technologyParkId === "string") patch.technology_park_id = body.technologyParkId || null;
+  // تم إزالة تعديل technology_park_id من هنا لأنه يتبع جدول المباني وليس العدادات مباشرة
+  if (typeof body.buildingId === "string" && body.buildingId.trim()) patch.building_id = body.buildingId.trim();
   if (typeof body.type === "string" && body.type.trim()) patch.type = body.type.trim();
   if (isReadingFrequency(body.readingFrequency)) {
     patch.reading_frequency = body.readingFrequency;
