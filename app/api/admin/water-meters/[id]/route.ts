@@ -20,14 +20,14 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient();
   
-  // تعريف query كـ any بالكامل لمنع أي تدقيق صارم من TypeScript
+  // تحويل الاستعلام بالكامل إلى any لقتل أي تدقيق صارم من تايبرسكريبت
   let query: any = supabase.from("water_meters").select("*, buildings(id, name, technology_park_id)", { count: "exact" });
 
   if (q) query = query.or(`label_en.ilike.%${q}%,meter_code.ilike.%${q}%`);
   
+  // الفلترة بالمنطقة تتم عبر جلب المباني أولاً (وهو المكان الصحيح لـ technology_park_id)
   if (parkId) {
-    const { data: parkBuildings } = await supabase
-      .from("buildings")
+    const { data: parkBuildings } = await (supabase.from("buildings") as any)
       .select("id")
       .eq("technology_park_id", parkId);
     
