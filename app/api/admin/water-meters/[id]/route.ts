@@ -19,14 +19,16 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") || "";
 
   const supabase = createAdminClient();
-  let query = supabase.from("water_meters" as any).select("*, buildings(id, name, technology_park_id)", { count: "exact" });
+  
+  // تعريف query كـ any بالكامل لمنع أي تدقيق صارم من TypeScript
+  let query: any = supabase.from("water_meters").select("*, buildings(id, name, technology_park_id)", { count: "exact" });
 
   if (q) query = query.or(`label_en.ilike.%${q}%,meter_code.ilike.%${q}%`);
   
   if (parkId) {
-    const { data: parkBuildings } = await (supabase
-      .from("buildings" as any)
-      .select("id") as any)
+    const { data: parkBuildings } = await supabase
+      .from("buildings")
+      .select("id")
       .eq("technology_park_id", parkId);
     
     const buildingIds = ((parkBuildings as any[]) ?? []).map((b) => b.id).filter(Boolean);
@@ -92,9 +94,8 @@ export async function POST(request: NextRequest) {
     is_active: true,
   };
 
-  const insertResult = await supabase
-    .from("water_meters" as any)
-    .insert(insertData as any)
+  const insertResult = await (supabase.from("water_meters") as any)
+    .insert(insertData)
     .select()
     .single();
 
