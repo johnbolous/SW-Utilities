@@ -102,13 +102,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "CREATE_FAILED", detail: insertResult.error.message }, { status: 500 });
   }
 
+  const createdData = (insertResult.data as any) || {};
+
   await logAudit(supabase, {
     actorId: admin.id,
     action: "water_meter_created",
     tableName: "water_meters",
-    recordId: insertResult.data.id,
-    newValue: insertResult.data,
+    recordId: createdData.id || "00000000-0000-0000-0000-000000000000",
+    newValue: createdData,
   });
 
-  return NextResponse.json({ waterMeter: insertResult.data }, { status: 201 });
+  return NextResponse.json({ waterMeter: createdData }, { status: 201 });
 }
