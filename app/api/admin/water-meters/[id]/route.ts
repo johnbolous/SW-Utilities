@@ -24,9 +24,9 @@ export async function GET(request: NextRequest) {
   if (q) query = query.or(`label_en.ilike.%${q}%,meter_code.ilike.%${q}%`);
   
   if (parkId) {
-    const { data: parkBuildings } = await supabase
+    const { data: parkBuildings } = await (supabase
       .from("buildings" as any)
-      .select("id")
+      .select("id") as any)
       .eq("technology_park_id", parkId);
     
     const buildingIds = ((parkBuildings as any[]) ?? []).map((b) => b.id).filter(Boolean);
