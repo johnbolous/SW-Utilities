@@ -24,6 +24,7 @@ function parkName(row: WaterMeterRow): string {
 export function WaterMetersPageContent() {
   const [parkOptions, setParkOptions] = useState<{ value: string; label: string }[]>([]);
   const [selectedParkId, setSelectedParkId] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/parks?pageSize=100")
@@ -51,7 +52,16 @@ export function WaterMetersPageContent() {
           value: selectedParkId,
           onChange: setSelectedParkId,
         },
-        { key: "status", label: "All statuses", options: [{ value: "active", label: "Active" }, { value: "disabled", label: "Disabled" }] },
+        {
+          key: "status",
+          label: "All statuses",
+          options: [
+            { value: "active", label: "Active" },
+            { value: "disabled", label: "Disabled" },
+          ],
+          value: selectedStatus,
+          onChange: setSelectedStatus,
+        },
       ]}
       columns={[
         { key: "label_en", label: "Label" },
