@@ -13,6 +13,139 @@ import {
   Legend,
 } from "recharts";
 
+// دالة ذكية لحساب الاستهلاك الشهري للعدادات التراكمية مع التعامل مع الشهور الفارغة بدون دمج
+function calculateMonthlyConsumption(readings: any[]) {
+  if (!readings || readings.length === 0) return {};
+
+  const sortedReadings = [...readings].sort((a, b) => {
+    const dateA = new Date(a?.reading_date || a?.timestamp || a?.created_at || a?.date || 0);
+    const dateB = new Date(b?.reading_date || b?.timestamp || b?.created_at || b?.date || 0);
+    return dateA.getTime() - dateB.getTime();
+  });
+
+  const groupedByMonth: { [key: string]: any[] } = {};
+  sortedReadings.forEach(r => {
+    const rawDate = r?.reading_date || r?.timestamp || r?.created_at || r?.date;
+    if (!rawDate) return;
+    const monthKey = String(rawDate).slice(0, 7); // "YYYY-MM"
+    
+    if (!groupedByMonth[monthKey]) {
+      groupedByMonth[monthKey] = [];
+    }
+    groupedByMonth[monthKey].push(r);
+  });
+
+  const monthKeys = Object.keys(groupedByMonth).sort();
+  const monthlyResults: { [key: string]: number } = {};
+  
+  const getVal = (item: any) => Number(item?.current_value ?? item?.reading ?? item?.reading_value ?? item?.consumption ?? 0);
+
+  let lastKnownReading: number | null = null;
+  let lastReadingDate: Date | null = null;
+
+  monthKeys.forEach((monthKey) => {
+    const monthReadings = groupedByMonth[monthKey];
+    if (!monthReadings || !Array.isArray(monthReadings) || monthReadings.length === 0) return;
+
+    const firstItem = monthReadings[0];
+    const lastItem = monthReadings[monthReadings.length - 1];
+    if (!firstItem || !lastItem) return;
+
+    const firstVal = getVal(firstItem);
+    const lastVal = getVal(lastItem);
+    const firstDate = new Date(firstItem.reading_date || firstItem.timestamp || firstItem.created_at || firstItem.date);
+
+    let monthConsumption = 0;
+
+    if (monthReadings.length > 1) {
+      monthConsumption = lastVal - firstVal;
+    } else {
+      if (lastKnownReading !== null && lastReadingDate !== null) {
+        const diffMonths = (firstDate.getFullYear() - lastReadingDate.getFullYear()) * 12 + (firstDate.getMonth() - lastReadingDate.getMonth());
+        if (diffMonths <= 1) {
+          monthConsumption = lastVal - lastKnownReading;
+        } else {
+          monthConsumption = 0;
+        }
+      } else {
+        monthConsumption = 0;
+      }
+    }
+
+    if (monthConsumption < 0) monthConsumption = 0;
+    monthlyResults[monthKey] = monthConsumption;
+
+    lastKnownReading = lastVal;
+    if (lastItem) {
+      lastReadingDate = new Date(lastItem.reading_date || lastItem.timestamp || lastItem.created_at || lastItem.date);
+    }
+  });
+
+  return monthlyResults;
+}
+
+function calculateMonthlyConsumptionsForAllMeters(readings: any[]) {
+  const meterReadingsMap = new Map<string, any[]>();
+  
+  readings.forEach(r => {
+    const mId = r.meter_id || r.water_meter_id || r.inverter_id;
+    if (!mId) return;
+    if (!meterReadingsMap.has(mId)) {
+      meterReadingsMap.set(mId, []);
+    }
+    meterReadingsMap.get(mId)!.push(r);
+  });
+
+  const meterMonthlyMap = new Map<string, { [monthKey: string]: number }>();
+  meterReadingsMap.forEach((meterReadings, mId) => {
+    meterMonthlyMap.set(mId, calculateMonthlyConsumption(meterReadings));
+  });
+
+  return meterMonthlyMap;
+}
+
+// دالة تجميع إنتاج الطاقة الشمسية اليومي (SUM)
+function calculateMonthlySolarSum(readings: any[]) {
+  if (!readings || readings.length === 0) return {};
+
+  const monthlyResults: { [key: string]: number } = {};
+
+  readings.forEach(r => {
+    const rawDate = r.reading_date || r.timestamp || r.created_at || r.date;
+    if (!rawDate) return;
+    const monthKey = rawDate.slice(0, 7); // "YYYY-MM"
+    
+    const val = Number(r.yield ?? r.value ?? r.production ?? 0);
+
+    if (!monthlyResults[monthKey]) {
+      monthlyResults[monthKey] = 0;
+    }
+    monthlyResults[monthKey] += val;
+  });
+
+  return monthlyResults;
+}
+
+function calculateSolarConsumptionsForAllInverters(readings: any[]) {
+  const inverterReadingsMap = new Map<string, any[]>();
+  
+  readings.forEach(r => {
+    const invId = r.inverter_id || r.meter_id || r.id;
+    if (!invId) return;
+    if (!inverterReadingsMap.has(invId)) {
+      inverterReadingsMap.set(invId, []);
+    }
+    inverterReadingsMap.get(invId)!.push(r);
+  });
+
+  const inverterMonthlyMap = new Map<string, { [monthKey: string]: number }>();
+  inverterReadingsMap.forEach((inverterReadings, invId) => {
+    inverterMonthlyMap.set(invId, calculateMonthlySolarSum(inverterReadings));
+  });
+
+  return inverterMonthlyMap;
+}
+
 export default function DeskDashboardContent({ data }: { data: any }) {
   const [activeTab, setActiveTab] = useState<"electric" | "water" | "solar">("electric");
 
@@ -30,6 +163,18 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return rawParksElec && rawParksElec.length > 0 ? rawParksElec.map((p: any) => p.id) : [];
   });
 
+  // Photo modal states
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [currentMeterForPhoto, setCurrentMeterForPhoto] = useState<any>(null);
+  const [meterPhotosList, setMeterPhotosList] = useState<any[]>([]);
+  const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
+  const [selectedPhotoMonth, setSelectedPhotoMonth] = useState<string>("");
+
+  // Monthly consumption delta maps
+  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+
   useEffect(() => {
     if (currentRawParks && currentRawParks.length > 0) {
       const newIds = currentRawParks.map((p: any) => p.id);
@@ -38,6 +183,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   }, [activeTab, data]);
 
   const todayStr = new Date().toISOString().split("T")[0];
+  const currentMonthKey = todayStr.slice(0, 7); // "YYYY-MM"
   const thirtyDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   const [demandTimeFrame, setDemandTimeFrame] = useState<"day" | "week" | "month" | "year">("week");
@@ -54,6 +200,63 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   const [consumptionChartData, setConsumptionChartData] = useState<any[]>([]);
   const [isConsumptionLoading, setIsConsumptionLoading] = useState(false);
+
+  // Fetch readings for monthly delta / sum calculations
+  useEffect(() => {
+    const fetchAllReadingsForCalculations = async () => {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+      const supabaseKey = 
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+
+      if (!supabaseUrl || !supabaseKey) return;
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      try {
+        // Electric readings
+        const elecMeterIds: string[] = [];
+        rawParksElec.forEach((park: any) => {
+          (park.meters || []).forEach((m: any) => { if (m.id) elecMeterIds.push(m.id); });
+        });
+        if (elecMeterIds.length > 0) {
+          const { data: elecReadings } = await supabase.from("electric_readings").select("*").in("meter_id", elecMeterIds);
+          if (elecReadings) {
+            setMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecReadings));
+          }
+        }
+
+        // Water readings
+        const waterMeterIds: string[] = [];
+        rawParksWater.forEach((park: any) => {
+          (park.meters || []).forEach((m: any) => { if (m.id) waterMeterIds.push(m.id); });
+        });
+        if (waterMeterIds.length > 0) {
+          const { data: waterReadings } = await supabase.from("water_readings").select("*").in("water_meter_id", waterMeterIds);
+          if (waterReadings) {
+            setWaterMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(waterReadings));
+          }
+        }
+
+        // Solar production
+        const inverterIds: string[] = [];
+        rawParksSolar.forEach((park: any) => {
+          (park.inverters || []).forEach((inv: any) => { if (inv.id) inverterIds.push(inv.id); });
+        });
+        if (inverterIds.length > 0) {
+          const { data: solarReadings } = await supabase.from("solar_production").select("*").in("inverter_id", inverterIds);
+          if (solarReadings) {
+            setSolarMonthlyConsumptions(calculateSolarConsumptionsForAllInverters(solarReadings));
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching readings for calculations:", err);
+      }
+    };
+
+    if (rawParksElec.length > 0 || rawParksWater.length > 0 || rawParksSolar.length > 0) {
+      fetchAllReadingsForCalculations();
+    }
+  }, [rawParksElec, rawParksWater, rawParksSolar]);
 
   const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") => {
     setDemandTimeFrame(frame);
@@ -103,13 +306,130 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   const parkColors = ["#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4"];
 
-  // Helper for local date string YYYY-MM-DD
   const getLocalDateStr = (timestamp: string) => {
     const d = new Date(timestamp);
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  };
+
+  const getDeviceName = (item: any) => {
+    return (
+      item?.name ||
+      item?.label ||
+      item?.label_en ||
+      item?.label_ar ||
+      item?.code ||
+      item?.meter_code ||
+      `جهاز رقم ${item?.id ? String(item.id).slice(0, 6) : ""}`
+    );
+  };
+
+  const getDeviceCode = (item: any) => {
+    return item?.code || item?.meter_code || item?.id || "";
+  };
+
+  const openPhotoModal = async (meter: any) => {
+    setCurrentMeterForPhoto(meter);
+    setIsPhotoModalOpen(true);
+    setIsLoadingPhotos(true);
+    setMeterPhotosList([]);
+    setSelectedPhotoMonth("");
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const supabaseKey = 
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+
+    if (!supabaseUrl || !supabaseKey) {
+      setIsLoadingPhotos(false);
+      return;
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    try {
+      const meterCode = getDeviceCode(meter);
+      const cat = String(meter.category || activeTab || "medium").trim().toLowerCase();
+      
+      let folderCategory = "medium";
+      if (activeTab === "water" || cat.includes("water")) {
+        folderCategory = "water";
+      } else if (cat.includes("low") || cat === "low") {
+        folderCategory = "low";
+      } else if (cat.includes("kiosk")) {
+        folderCategory = "kiosk";
+      } else {
+        folderCategory = "medium";
+      }
+
+      const mainBucket = "meter-photos";
+      const targetPath = `${folderCategory}/${meterCode}`;
+
+      let fetchedPhotos: any[] = [];
+
+      const { data: storageFiles, error: storageError } = await supabase.storage
+        .from(mainBucket)
+        .list(targetPath, {
+          limit: 100,
+          offset: 0,
+          sortBy: { column: 'name', order: 'desc' },
+        });
+
+      if (!storageError && storageFiles && storageFiles.length > 0) {
+        storageFiles.forEach((file: any) => {
+          if (file.name && file.name !== ".emptyFolderPlaceholder") {
+            const filePath = `${targetPath}/${file.name}`;
+            const { data: publicUrlData } = supabase.storage
+              .from(mainBucket)
+              .getPublicUrl(filePath);
+
+            let dateStr = file.created_at || file.updated_at || "";
+            const match = file.name.match(/(\d{4}-\d{2}-\d{2})/);
+            if (match) {
+              dateStr = match[1];
+            }
+
+            fetchedPhotos.push({
+              id: file.id || filePath,
+              url: publicUrlData.publicUrl,
+              created_at: dateStr || new Date().toISOString().split("T")[0],
+              name: file.name
+            });
+          }
+        });
+      }
+
+      const { data: dbPhotos } = await supabase
+        .from("photos")
+        .select("*")
+        .eq("meter_id", meter.id)
+        .order("created_at", { ascending: false });
+
+      if (dbPhotos && dbPhotos.length > 0) {
+        dbPhotos.forEach((p: any) => {
+          const pUrl = p.url || p.image_url || p.file_path || p.path;
+          if (pUrl && !fetchedPhotos.some(fp => fp.url === pUrl)) {
+            fetchedPhotos.push({
+              id: p.id,
+              url: pUrl,
+              created_at: p.created_at || p.reading_date || p.date || "",
+              name: p.name || "photo"
+            });
+          }
+        });
+      }
+
+      setMeterPhotosList(fetchedPhotos);
+      if (fetchedPhotos.length > 0 && fetchedPhotos[0].created_at) {
+        setSelectedPhotoMonth(fetchedPhotos[0].created_at.slice(0, 7));
+      }
+    } catch (err) {
+      console.error("Error fetching photos:", err);
+    } finally {
+      setIsLoadingPhotos(false);
+    }
   };
 
   useEffect(() => {
@@ -132,7 +452,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           return;
         }
 
-        // Convert local filter dates to precise UTC ISO strings to prevent timezone shifts
         const startIso = new Date(`${demandStartDate}T00:00:00`).toISOString();
         const endIso = new Date(`${demandEndDate}T23:59:59`).toISOString();
 
@@ -266,7 +585,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           if (!pId || !rawDate) return;
 
           const keyStr = getLocalDateStr(rawDate);
-
           if (keyStr < consumptionStartDate || keyStr > consumptionEndDate) return;
 
           const val = Number(row.consumption ?? row.current_value ?? row.reading ?? row.reading_value ?? 0);
@@ -353,7 +671,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         const cat = String(m.category || "").trim().toUpperCase();
         if (cat === "MEDIUM" || cat === "MED" || cat.includes("MEDIUM")) {
           daily += Number(m.consumption || 0);
-          monthly += Number(m.totalConsumption || 0);
+          const meterMonthlyMap = meterMonthlyConsumptions.get(m.id);
+          const monthlyVal = meterMonthlyMap ? (meterMonthlyMap[currentMonthKey] ?? 0) : Number(m.totalConsumption || 0);
+          monthly += monthlyVal;
         }
       });
     });
@@ -365,23 +685,31 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     }
 
     return { todayMediumElec: daily, monthMediumElec: monthly, mediumMaxDemand: maxDem };
-  }, [rawParksElec, parkAveragesMap]);
+  }, [rawParksElec, parkAveragesMap, meterMonthlyConsumptions, currentMonthKey]);
 
-  const getDeviceName = (item: any) => {
-    return (
-      item?.name ||
-      item?.label ||
-      item?.label_en ||
-      item?.label_ar ||
-      item?.code ||
-      item?.meter_code ||
-      `جهاز رقم ${item?.id ? String(item.id).slice(0, 6) : ""}`
-    );
-  };
+  const summarySolarMonth = useMemo(() => {
+    let sumMonth = 0;
+    rawParksSolar.forEach((park: any) => {
+      (park.inverters || []).forEach((inv: any) => {
+        const invMap = solarMonthlyConsumptions.get(inv.id);
+        const val = invMap ? (invMap[currentMonthKey] ?? 0) : Number(inv.totalYield || 0);
+        sumMonth += val;
+      });
+    });
+    return sumMonth;
+  }, [rawParksSolar, solarMonthlyConsumptions, currentMonthKey]);
 
-  const getDeviceCode = (item: any) => {
-    return item?.code || item?.meter_code || item?.id || "";
-  };
+  const summaryWaterMonth = useMemo(() => {
+    let sumMonth = 0;
+    rawParksWater.forEach((park: any) => {
+      (park.meters || []).forEach((m: any) => {
+        const waterMap = waterMeterMonthlyConsumptions.get(m.id);
+        const val = waterMap ? (waterMap[currentMonthKey] ?? 0) : Number(m.totalConsumption || 0);
+        sumMonth += val;
+      });
+    });
+    return sumMonth;
+  }, [rawParksWater, waterMeterMonthlyConsumptions, currentMonthKey]);
 
   const processedElecData = useMemo(() => {
     return rawParksElec
@@ -396,7 +724,13 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           return cat === selectedCategory.toUpperCase();
         });
         const elecDaily = electricMeters.reduce((sum: number, m: any) => sum + Number(m.consumption || 0), 0);
-        const elecTotalConsumption = electricMeters.reduce((sum: number, m: any) => sum + Number(m.totalConsumption || 0), 0);
+        
+        const elecTotalConsumption = electricMeters.reduce((sum: number, m: any) => {
+          const meterMonthlyMap = meterMonthlyConsumptions.get(m.id);
+          const monthlyVal = meterMonthlyMap ? (meterMonthlyMap[currentMonthKey] ?? 0) : Number(m.totalConsumption || 0);
+          return sum + monthlyVal;
+        }, 0);
+
         const parkAvgMaxDemand = parkAveragesMap.get(park.id) || 0;
 
         return {
@@ -409,39 +743,54 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           elecActiveCount: electricMeters.filter((m: any) => Number(m.consumption || 0) > 0).length,
         };
       });
-  }, [rawParksElec, selectedParkIds, selectedCategory, parkAveragesMap]);
+  }, [rawParksElec, selectedParkIds, selectedCategory, parkAveragesMap, meterMonthlyConsumptions, currentMonthKey]);
 
   const processedWaterData = useMemo(() => {
     return rawParksWater
       .filter((park: any) => selectedParkIds.includes(park.id))
       .map((park: any) => {
         const meters = park.meters || [];
+        const waterDaily = meters.reduce((sum: number, m: any) => sum + Number(m.consumption || 0), 0);
+        const waterTotal = meters.reduce((sum: number, m: any) => {
+          const waterMonthlyMap = waterMeterMonthlyConsumptions.get(m.id);
+          const monthlyVal = waterMonthlyMap ? (waterMonthlyMap[currentMonthKey] ?? 0) : Number(m.totalConsumption || 0);
+          return sum + monthlyVal;
+        }, 0);
+
         return {
           ...park,
           meters,
-          waterDaily: meters.reduce((sum: number, m: any) => sum + Number(m.consumption || 0), 0),
-          waterTotal: meters.reduce((sum: number, m: any) => sum + Number(m.totalConsumption || 0), 0),
+          waterDaily,
+          waterTotal,
           activeCount: meters.filter((m: any) => Number(m.consumption || 0) > 0).length,
           totalCount: meters.length,
         };
       });
-  }, [rawParksWater, selectedParkIds]);
+  }, [rawParksWater, selectedParkIds, waterMeterMonthlyConsumptions, currentMonthKey]);
 
   const processedSolarData = useMemo(() => {
     return rawParksSolar
       .filter((park: any) => selectedParkIds.includes(park.id))
       .map((park: any) => {
         const inverters = park.inverters || [];
+        const solarDaily = inverters.reduce((sum: number, i: any) => sum + Number(i.yield || 0), 0);
+        
+        const solarTotal = inverters.reduce((sum: number, i: any) => {
+          const invMap = solarMonthlyConsumptions.get(i.id);
+          const monthlyVal = invMap ? (invMap[currentMonthKey] ?? 0) : Number(i.totalYield || 0);
+          return sum + monthlyVal;
+        }, 0);
+
         return {
           ...park,
           inverters,
-          solarDaily: inverters.reduce((sum: number, i: any) => sum + Number(i.yield || 0), 0),
-          solarTotal: inverters.reduce((sum: number, i: any) => sum + Number(i.totalYield || 0), 0),
+          solarDaily,
+          solarTotal,
           activeCount: inverters.filter((i: any) => Number(i.yield || 0) > 0).length,
           totalCount: inverters.length,
         };
       });
-  }, [rawParksSolar, selectedParkIds]);
+  }, [rawParksSolar, selectedParkIds, solarMonthlyConsumptions, currentMonthKey]);
 
   const currentItemsList = useMemo(() => {
     let list: any[] = [];
@@ -866,7 +1215,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
               </span>
             </div>
             <div className="mt-4 pt-3 border-t text-xs text-gray-500 font-medium">
-              This Month: <span className="font-bold text-gray-800">{Math.round(summary.monthSolar || 0).toLocaleString()} kWh</span>
+              This Month: <span className="font-bold text-gray-800">{Math.round(summarySolarMonth || 0).toLocaleString()} kWh</span>
             </div>
           </div>
 
@@ -879,7 +1228,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
               </span>
             </div>
             <div className="mt-4 pt-3 border-t text-xs text-gray-500 font-medium">
-              This Month: <span className="font-bold text-gray-800">{Math.round(summary.monthWater || 0).toLocaleString()} m³</span>
+              This Month: <span className="font-bold text-gray-800">{Math.round(summaryWaterMonth || 0).toLocaleString()} m³</span>
             </div>
           </div>
         </div>
@@ -1057,6 +1406,98 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
+      {/* Photo Viewer Modal */}
+      {isPhotoModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl" dir="rtl">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-gray-800">
+                  صور العداد الشهرية: {currentMeterForPhoto ? getDeviceName(currentMeterForPhoto) : ""}
+                </h3>
+                <p className="text-xs text-gray-400">الكود: {currentMeterForPhoto ? getDeviceCode(currentMeterForPhoto) : ""}</p>
+              </div>
+              <button onClick={() => setIsPhotoModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-lg">✕</button>
+            </div>
+
+            {isLoadingPhotos ? (
+              <div className="py-12 text-center text-xs text-gray-500 font-bold">
+                جاري جلب الصور من خوادم التخزين...
+              </div>
+            ) : meterPhotosList.length === 0 ? (
+              <div className="py-12 text-center text-xs text-gray-400">
+                لا توجد صور مخزنة في مجلد ({currentMeterForPhoto ? getDeviceCode(currentMeterForPhoto) : ""}) حتى الآن.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 bg-gray-50 p-3 rounded-xl border">
+                  <span className="text-xs font-bold text-gray-700">اختر الشهر:</span>
+                  <select
+                    value={selectedPhotoMonth}
+                    onChange={(e) => setSelectedPhotoMonth(e.target.value)}
+                    className="border p-2 rounded-lg text-xs bg-white font-medium outline-none flex-1"
+                  >
+                    {Array.from(new Set(meterPhotosList.map(p => (p.created_at || "").slice(0, 7)))).map((monthStr: any) => (
+                      <option key={monthStr} value={monthStr}>
+                        شهر {monthStr} (صورة العداد)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="max-h-[400px] overflow-y-auto space-y-3">
+                  {meterPhotosList
+                    .filter(p => {
+                      const pDate = p.created_at || "";
+                      return !selectedPhotoMonth || pDate.startsWith(selectedPhotoMonth);
+                    })
+                    .map((photo: any, index: number) => {
+                      return (
+                        <div key={photo.id || index} className="bg-gray-50 p-4 rounded-2xl border space-y-2">
+                          <div className="flex justify-between items-center text-xs text-gray-500">
+                            <span className="font-bold text-gray-700">التاريخ المستخرج: {photo.created_at}</span>
+                            <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold">{photo.name}</span>
+                          </div>
+                          {photo.url ? (
+                            <div>
+                              <img 
+                                src={photo.url} 
+                                alt="صورة العداد" 
+                                className="w-full max-h-80 object-contain rounded-xl border bg-black/5 shadow-sm"
+                              />
+                              <div className="mt-2 text-left">
+                                <a 
+                                  href={photo.url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="text-blue-600 text-xs font-bold underline hover:text-blue-800"
+                                >
+                                  فتح الصورة بالحجم الكامل 🔍
+                                </a>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-red-500 italic">رابط الصورة غير متوفر.</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2 border-t">
+              <button 
+                onClick={() => setIsPhotoModalOpen(false)} 
+                className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === "electric" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {processedElecData.map((park: any) => (
@@ -1086,6 +1527,16 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                   <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
                     <span className="font-medium text-gray-700">{getDeviceName(m)} ({getDeviceCode(m)})</span>
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openPhotoModal(m);
+                        }}
+                        className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                        title="استعراض صورة العداد الشهرية"
+                      >
+                        <span>📷</span> صور العداد
+                      </button>
                       <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} kWh</span>
                       <span className={`w-2 h-2 rounded-full ${Number(m.consumption || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
                     </div>
@@ -1122,6 +1573,16 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                   <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
                     <span className="font-medium text-gray-700">{getDeviceName(m)} ({getDeviceCode(m)})</span>
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openPhotoModal(m);
+                        }}
+                        className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                        title="استعراض صورة العداد الشهرية"
+                      >
+                        <span>📷</span> صور العداد
+                      </button>
                       <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} m³</span>
                       <span className={`w-2 h-2 rounded-full ${Number(m.consumption || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
                     </div>
