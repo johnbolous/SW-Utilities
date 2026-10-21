@@ -13,7 +13,6 @@ interface WaterMeterRow {
   reading_frequency: "DAILY" | "MONTHLY";
   monthly_reading_day: number | null;
   is_active: boolean;
-  is_main: boolean;
   technology_park_id: string | null;
   technology_parks: { name: string } | null;
 }
@@ -34,6 +33,29 @@ export function WaterMetersPageContent() {
         setParkOptions((body.parks ?? []).map((p: any) => ({ value: p.id, label: p.name })))
       );
   }, []);
+
+  // دالة مسح العداد
+  const handleDeleteMeter = async (id: string, label: string) => {
+    if (!confirm(`Are you sure you want to delete water meter "${label}"?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/water-meters/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to delete water meter");
+      }
+
+      // إعادة تحميل الصفحة لتحديث الجدول بعد الحذف
+      window.location.reload();
+    } catch (error) {
+      alert("Error deleting water meter. Please try again.");
+      console.error(error);
+    }
+  };
 
   return (
     <AdminListPage<WaterMeterRow>
@@ -69,17 +91,23 @@ export function WaterMetersPageContent() {
         { key: "meter_code", label: "Code" },
         { key: "technology_parks", label: "Technology Park", render: parkName },
         { key: "type", label: "Type", render: (r) => <span className="capitalize">{r.type}</span> },
-        { 
-          key: "is_main", 
-          label: "Scope", 
-          render: (r) => (
-            <Badge tone={r.is_main ? "info" : "warning"}>
-              {r.is_main ? "Main" : "Sub-Meter"}
-            </Badge>
-          ) 
-        },
         { key: "reading_frequency", label: "Frequency", render: (r) => <span className="capitalize">{r.reading_frequency.toLowerCase()}</span> },
         { key: "is_active", label: "Status", render: (r) => <Badge tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Disabled"}</Badge> },
+        {
+          key: "actions",
+          label: "Actions",
+          render: (r) => (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDeleteMeter(r.id, r.label_en);
+              }}
+              className="px-2.5 py-1 text-xs font-semibold rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+            >
+              Delete
+            </button>
+          ),
+        },
       ]}
       renderForm={({ record, onDone, onCancel }) => <WaterMeterForm record={record} onDone={onDone} onCancel={onCancel} />}
     />
