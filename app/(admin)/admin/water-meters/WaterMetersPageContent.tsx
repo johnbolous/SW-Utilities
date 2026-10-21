@@ -13,6 +13,7 @@ interface WaterMeterRow {
   reading_frequency: "DAILY" | "MONTHLY";
   monthly_reading_day: number | null;
   is_active: boolean;
+  is_main: boolean;
   technology_park_id: string | null;
   technology_parks: { name: string } | null;
 }
@@ -68,6 +69,15 @@ export function WaterMetersPageContent() {
         { key: "meter_code", label: "Code" },
         { key: "technology_parks", label: "Technology Park", render: parkName },
         { key: "type", label: "Type", render: (r) => <span className="capitalize">{r.type}</span> },
+        { 
+          key: "is_main", 
+          label: "Scope", 
+          render: (r) => (
+            <Badge tone={r.is_main ? "info" : "warning"}>
+              {r.is_main ? "Main" : "Sub-Meter"}
+            </Badge>
+          ) 
+        },
         { key: "reading_frequency", label: "Frequency", render: (r) => <span className="capitalize">{r.reading_frequency.toLowerCase()}</span> },
         { key: "is_active", label: "Status", render: (r) => <Badge tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Disabled"}</Badge> },
       ]}
