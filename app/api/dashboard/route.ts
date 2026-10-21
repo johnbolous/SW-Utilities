@@ -61,10 +61,10 @@ export async function GET(request: NextRequest) {
   const buildingParkMap = new Map(validBuildings.map((b) => [b.id, b.technology_park_id]));
   const safeBuildingIds = buildingIds.length ? buildingIds : ["00000000-0000-0000-0000-000000000000"];
 
-  // 4. جلب العدادات بكل الأعمدة select("*") لتجنب أي خطأ في أسماء الأعمدة
+  // 4. جلب العدادات بشكل مرن يضمن شمولية المياه غير المرتبطة بمبنى (building_id = null)
   const [
     { count: floorCount },
-    { data: electricMeters, error: elecMetersErr },
+    { data: electricMeters },
     { data: waterMeters },
     { data: solarInverters }
   ] = await Promise.all([
@@ -123,9 +123,8 @@ export async function GET(request: NextRequest) {
   const todaySolar = safeSolar.filter((r) => getDate(r) === latestSolarDate).reduce((acc, r) => acc + parseVal(r), 0);
   const monthSolar = safeSolar.reduce((acc, r) => acc + parseVal(r), 0);
 
-  // خريطة لتخزين العدادات حسب المنطقة
+  // --- أ) تجميع عدادات الكهرباء حسب المناطق ---
   const parkMetersMap = new Map<string, any[]>();
-
   finalParks.forEach((p) => {
     const pName = p.name_en || p.name_ar || "Technology Park";
     parkMetersMap.set(pName, []);
@@ -133,11 +132,9 @@ export async function GET(request: NextRequest) {
 
   validElecMeters.forEach((meter: any) => {
     let parkId = meter.technology_park_id || meter.park_id || buildingParkMap.get(meter.building_id);
-    
     if (!parkId && finalParks.length > 0) {
       parkId = finalParks[0].id;
     }
-    
     const parkName = parkMap.get(parkId) || (finalParks[0] ? (finalParks[0].name_en || finalParks[0].name_ar) : "Technology Park");
 
     const meterReadings = safeElec.filter((r) => r.meter_id === meter.id);
@@ -148,7 +145,6 @@ export async function GET(request: NextRequest) {
       meterConsumption = parseVal(meterReadings[0]);
     }
 
-    // التعرف المرن على الحقول حتى وإن اختلفت مسماها في قاعدة البيانات
     const category = (meter.category || meter.type || meter.voltage_type || meter.voltage || "MEDIUM").toString().toUpperCase();
     const code = meter.meter_code || meter.code || meter.serial_number || meter.id;
     const label = meter.label_en || meter.name_en || meter.name || meter.label || code;
@@ -156,9 +152,9 @@ export async function GET(request: NextRequest) {
     const list = parkMetersMap.get(parkName) || [];
     list.push({
       id: meter.id,
-      code: code,
-      label: label,
-      category: category,
+      code,
+      label,
+      category,
       consumption: meterConsumption,
     });
     parkMetersMap.set(parkName, list);
@@ -168,7 +164,6 @@ export async function GET(request: NextRequest) {
     const parkName = p.name_en || p.name_ar || "Technology Park";
     const metersList = parkMetersMap.get(parkName) || [];
     const totalConsumption = metersList.reduce((sum, m) => sum + m.consumption, 0);
-    
     return {
       name: parkName,
       consumption: totalConsumption,
@@ -177,6 +172,54 @@ export async function GET(request: NextRequest) {
     };
   });
 
+  // --- ب) تجميع عدادات المياه حسب المناطق ---
+  const parkWaterMetersMap = new Map<string, any[]>();
+  finalParks.forEach((p) => {
+    const pName = p.name_en || p.name_ar || "Technology Park";
+    parkWaterMetersMap.set(pName, []);
+  });
+
+  validWaterMeters.forEach((meter: any) => {
+    let parkId = meter.technology_park_id || meter.park_id || buildingParkMap.get(meter.building_id);
+    if (!parkId && finalParks.length > 0) {
+      parkId = finalParks[0].id;
+    }
+    const parkName = parkMap.get(parkId) || (finalParks[0] ? (finalParks[0].name_en || finalParks[0].name_ar) : "Technology Park");
+
+    const meterReadings = safeWater.filter((r) => (r.water_meter_id || r.meter_id) === meter.id);
+    const todayReadings = meterReadings.filter((r) => getDate(r) === latestWaterDate);
+    
+    let meterConsumption = todayReadings.reduce((acc, r) => acc + parseVal(r), 0);
+    if (meterConsumption === 0 && meterReadings.length > 0) {
+      meterConsumption = parseVal(meterReadings[0]);
+    }
+
+    const code = meter.meter_code || meter.code || meter.serial_number || meter.id;
+    const label = meter.label_en || meter.name_en || meter.name || meter.label || code;
+
+    const list = parkWaterMetersMap.get(parkName) || [];
+    list.push({
+      id: meter.id,
+      code,
+      label,
+      consumption: meterConsumption,
+    });
+    parkWaterMetersMap.set(parkName, list);
+  });
+
+  const parksWaterData = finalParks.map((p) => {
+    const parkName = p.name_en || p.name_ar || "Technology Park";
+    const metersList = parkWaterMetersMap.get(parkName) || [];
+    const totalConsumption = metersList.reduce((sum, m) => sum + m.consumption, 0);
+    return {
+      name: parkName,
+      consumption: totalConsumption,
+      value: totalConsumption,
+      meters: metersList,
+    };
+  });
+
+  // --- ج) خرائط التوزيع حسب المباني والسجل التاريخي ---
   const elecByBuildingMap = new Map<string, number>();
   safeElec.forEach((r) => {
     const meter = validElecMeters.find((m: any) => m.id === r.meter_id);
@@ -222,6 +265,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     parks: parkNames,
     parksDailyElec,
+    parksWaterData,
     overview: {
       todayElec: Math.round(todayElec),
       monthElec: Math.round(monthElec),
@@ -239,6 +283,7 @@ export async function GET(request: NextRequest) {
     },
     charts: {
       elecByPark: parksDailyElec,
+      waterByPark: parksWaterData,
       elecByBuilding: Array.from(elecByBuildingMap.entries()).map(([name, value]) => ({ name, value: Math.round(value) })),
       elecHistory: Array.from(elecHistoryMap.entries()).reverse().map(([date, consumption]) => ({ date, consumption: Math.round(consumption) })),
       solarByBuilding: Array.from(solarByBuildingMap.entries()).map(([name, value]) => ({ name, value: Math.round(value) })),
