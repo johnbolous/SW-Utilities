@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
   ] = await Promise.all([
     supabase.from("floors").select("id", { count: "exact", head: true }).in("building_id", safeBuildingIds),
     supabase.from("meters").select("*").in("building_id", safeBuildingIds),
-    supabase.from("water_meters").select("*").in("technology_park_id", safeParkIds),
+    supabase.from("water_meters").select("*").or(`building_id.in.(${safeBuildingIds.join(",")}),technology_park_id.in.(${safeParkIds.join(",")})`),
     supabase.from("solar_inverters").select("*").in("building_id", safeBuildingIds),
   ]);
 
