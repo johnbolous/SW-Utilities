@@ -26,7 +26,7 @@ export default async function DeskPage() {
   if (user.role === "admin" || dbUser?.all_parks_access) {
     const { data: allParks } = await supabase.from("technology_parks").select("id, name");
     if (allParks) {
-      targetParkIds = (allParks as any[]).map((p) => p.id).filter((id): id is string => Boolean(id));
+      targetParkIds = allParks.map((p) => p.id);
     }
   } else {
     const { data: accessRows } = await supabase
@@ -35,7 +35,7 @@ export default async function DeskPage() {
       .eq("user_id", user.id);
 
     if (accessRows && accessRows.length > 0) {
-      targetParkIds = (accessRows as any[]).map((r) => r.park_id).filter((id): id is string => Boolean(id));
+      targetParkIds = accessRows.map((r) => r.park_id).filter(Boolean);
     }
   }
 
@@ -51,15 +51,16 @@ export default async function DeskPage() {
 
     if (parksData && parksData.length > 0) {
       parksDataMap = parksData;
-      parkNames = (parksData as any[]).map((p) => p.name || "Park");
-      finalParkIds = (parksData as any[]).map((p) => p.id).filter((id): id is string => Boolean(id));
+      parkNames = parksData.map((p) => p.name || "Park");
+      finalParkIds = parksData.map((p) => p.id);
     }
   }
 
   const safeParkIds = finalParkIds.length ? finalParkIds : ["00000000-0000-0000-0000-000000000000"];
   const { data: buildings } = await supabase.from("buildings").select("id, technology_park_id").in("technology_park_id", safeParkIds);
-  const buildingIds = ((buildings as any[]) ?? []).map((b) => b.id).filter((id): id is string => Boolean(id));
+  const buildingIds = (buildings ?? []).map((b) => b.id);
   const safeBuildingIds = buildingIds.length ? buildingIds : ["00000000-0000-0000-0000-000000000000"];
+  const parkIdsList = safeParkIds.join(",");
 
   const [
     { count: floorCount },
@@ -69,14 +70,11 @@ export default async function DeskPage() {
   ] = await Promise.all([
     supabase.from("floors").select("id", { count: "exact", head: true }).in("building_id", safeBuildingIds),
     supabase
-      .from("meters" as any)
-      .select("id, building_id, category, meter_code, label_en, label_ar, tenant_name")
-      .in("building_id", safeBuildingIds),
-    supabase
-      .from("water_meters" as any)
-      .select("id, building_id, meter_code, label_en, label_ar")
-      .in("building_id", safeBuildingIds),
-    supabase.from("solar_inverters" as any).select("*"),
+      .from("meters")
+      .select("id, building_id, technology_park_id, category, meter_code, label_en, label_ar, tenant_name")
+      .or(`building_id.in.(${safeBuildingIds.join(",")}),technology_park_id.in.(${parkIdsList})`),
+    supabase.from("water_meters").select("id, building_id, technology_park_id, meter_code, label_en, label_ar").or(`building_id.in.(${safeBuildingIds.join(",")}),technology_park_id.in.(${parkIdsList})`),
+    supabase.from("solar_inverters").select("*"),
   ]);
 
   if (elecError) {
@@ -84,38 +82,31 @@ export default async function DeskPage() {
   }
 
   const buildingToParkMap = new Map<string, string>();
-  (((buildings as any[]) ?? [])).forEach((b: any) => {
-    if (b?.id && b?.technology_park_id) {
-      buildingToParkMap.set(b.id, b.technology_park_id);
-    }
-  });
+  (buildings ?? []).forEach((b) => buildingToParkMap.set(b.id, b.technology_park_id));
 
   const parkIdToName = new Map<string, string>();
-  parksDataMap.forEach((p: any) => {
-    if (p?.id && p?.name) parkIdToName.set(p.id, p.name);
-  });
+  parksDataMap.forEach((p) => parkIdToName.set(p.id, p.name));
 
   const getMeterParkId = (item: any) => {
-    if (!item) return null;
     if (item.technology_park_id) return item.technology_park_id;
     if (item.park_id) return item.park_id;
     if (item.building_id) return buildingToParkMap.get(item.building_id) || null;
     return null;
   };
 
-  const validElecMeters = (electricMeters as any[]) ?? [];
-  const validWaterMeters = (waterMeters as any[]) ?? [];
+  const validElecMeters = electricMeters ?? [];
+  const validWaterMeters = waterMeters ?? [];
   
-  const rawSolarInverters = (solarInverters as any[]) ?? [];
+  const rawSolarInverters = solarInverters ?? [];
   const validSolarInverters = rawSolarInverters.filter((s: any) => {
     const parkId = getMeterParkId(s);
     if (!parkId) return false;
     return targetParkIds.includes(parkId) || user.role === "admin" || dbUser?.all_parks_access;
   });
 
-  const safeElecIds = validElecMeters.length ? validElecMeters.map((m: any) => m.id).filter((id): id is string => Boolean(id)) : ["00000000-0000-0000-0000-000000000000"];
-  const safeWaterIds = validWaterMeters.length ? validWaterMeters.map((w: any) => w.id).filter((id): id is string => Boolean(id)) : ["00000000-0000-0000-0000-000000000000"];
-  const safeSolarIds = validSolarInverters.length ? validSolarInverters.map((s: any) => s.id).filter((id): id is string => Boolean(id)) : ["00000000-0000-0000-0000-000000000000"];
+  const safeElecIds = validElecMeters.length ? validElecMeters.map((m) => m.id) : ["00000000-0000-0000-0000-000000000000"];
+  const safeWaterIds = validWaterMeters.length ? validWaterMeters.map((w) => w.id) : ["00000000-0000-0000-0000-000000000000"];
+  const safeSolarIds = validSolarInverters.length ? validSolarInverters.map((s) => s.id) : ["00000000-0000-0000-0000-000000000000"];
 
   const [
     { data: elecReadings },
@@ -165,33 +156,33 @@ export default async function DeskPage() {
     day: '2-digit'
   }).format(new Date());
 
-  const safeElec = (elecReadings as any[]) ?? [];
-  const safeWater = (waterReadings as any[]) ?? [];
-  const safeSolar = (solarReadings as any[]) ?? [];
+  const safeElec = elecReadings ?? [];
+  const safeWater = waterReadings ?? [];
+  const safeSolar = solarReadings ?? [];
 
-  const todayElec = safeElec.filter((r: any) => getDate(r) === todayDateStr).reduce((acc: number, r: any) => acc + parseVal(r), 0);
-  const monthElec = safeElec.reduce((acc: number, r: any) => acc + parseVal(r), 0);
+  const todayElec = safeElec.filter((r) => getDate(r) === todayDateStr).reduce((acc, r) => acc + parseVal(r), 0);
+  const monthElec = safeElec.reduce((acc, r) => acc + parseVal(r), 0);
 
-  const todayWater = safeWater.filter((r: any) => getDate(r) === todayDateStr).reduce((acc: number, r: any) => acc + parseVal(r), 0);
-  const monthWater = safeWater.reduce((acc: number, r: any) => acc + parseVal(r), 0);
+  const todayWater = safeWater.filter((r) => getDate(r) === todayDateStr).reduce((acc, r) => acc + parseVal(r), 0);
+  const monthWater = safeWater.reduce((acc, r) => acc + parseVal(r), 0);
 
-  const todaySolar = safeSolar.filter((r: any) => getDate(r) === todayDateStr).reduce((acc: number, r: any) => acc + parseVal(r), 0);
-  const monthSolar = safeSolar.reduce((acc: number, r: any) => acc + parseVal(r), 0);
+  const todaySolar = safeSolar.filter((r) => getDate(r) === todayDateStr).reduce((acc, r) => acc + parseVal(r), 0);
+  const monthSolar = safeSolar.reduce((acc, r) => acc + parseVal(r), 0);
 
-  const parksDailyElec = parksDataMap.map((park: any) => {
+  const parksDailyElec = parksDataMap.map((park) => {
     const parkMeters = validElecMeters
       .filter((m: any) => getMeterParkId(m) === park.id)
       .map((m: any) => {
-        const meterReadings = safeElec.filter((r: any) => r.meter_id === m.id);
-        const totalConsumption = meterReadings.reduce((sum: number, r: any) => sum + parseVal(r), 0);
+        const meterReadings = safeElec.filter((r) => r.meter_id === m.id);
+        const totalConsumption = meterReadings.reduce((sum, r) => sum + parseVal(r), 0);
         const todayConsumption = meterReadings
-          .filter((r: any) => getDate(r) === todayDateStr)
-          .reduce((sum: number, r: any) => sum + parseVal(r), 0);
+          .filter((r) => getDate(r) === todayDateStr)
+          .reduce((sum, r) => sum + parseVal(r), 0);
 
         return {
           id: m.id,
-          code: m.meter_code || `Meter-${String(m.id).slice(0, 6)}`,
-          label: m.label_en || m.label_ar || m.meter_code || `Meter-${String(m.id).slice(0, 6)}`,
+          code: m.meter_code || `Meter-${m.id.slice(0, 6)}`,
+          label: m.label_en || m.label_ar || m.meter_code || `Meter-${m.id.slice(0, 6)}`,
           tenant: m.tenant_name || "",
           category: m.category || "MEDIUM",
           consumption: todayConsumption,      
@@ -211,20 +202,20 @@ export default async function DeskPage() {
     };
   });
 
-  const parksWaterData = parksDataMap.map((park: any) => {
+  const parksWaterData = parksDataMap.map((park) => {
     const parkWaterMeters = validWaterMeters
       .filter((w: any) => getMeterParkId(w) === park.id)
       .map((w: any) => {
-        const meterReadings = safeWater.filter((r: any) => r.water_meter_id === w.id);
-        const totalConsumption = meterReadings.reduce((sum: number, r: any) => sum + parseVal(r), 0);
+        const meterReadings = safeWater.filter((r) => r.water_meter_id === w.id);
+        const totalConsumption = meterReadings.reduce((sum, r) => sum + parseVal(r), 0);
         const todayConsumption = meterReadings
-          .filter((r: any) => getDate(r) === todayDateStr)
-          .reduce((sum: number, r: any) => sum + parseVal(r), 0);
+          .filter((r) => getDate(r) === todayDateStr)
+          .reduce((sum, r) => sum + parseVal(r), 0);
 
         return {
           id: w.id,
-          code: w.meter_code || `Water-${String(w.id).slice(0, 6)}`,
-          label: w.label_en || w.label_ar || w.meter_code || `Water-${String(w.id).slice(0, 6)}`,
+          code: w.meter_code || `Water-${w.id.slice(0, 6)}`,
+          label: w.label_en || w.label_ar || w.meter_code || `Water-${w.id.slice(0, 6)}`,
           consumption: todayConsumption,
           totalConsumption,
         };
@@ -242,20 +233,20 @@ export default async function DeskPage() {
     };
   });
 
-  const parksSolarData = parksDataMap.map((park: any) => {
+  const parksSolarData = parksDataMap.map((park) => {
     const parkInverters = validSolarInverters
       .filter((s: any) => getMeterParkId(s) === park.id)
       .map((s: any) => {
-        const inverterReadings = safeSolar.filter((r: any) => r.inverter_id === s.id);
-        const totalYield = inverterReadings.reduce((sum: number, r: any) => sum + parseVal(r), 0);
+        const inverterReadings = safeSolar.filter((r) => r.inverter_id === s.id);
+        const totalYield = inverterReadings.reduce((sum, r) => sum + parseVal(r), 0);
         const todayYield = inverterReadings
-          .filter((r: any) => getDate(r) === todayDateStr)
-          .reduce((sum: number, r: any) => sum + parseVal(r), 0);
+          .filter((r) => getDate(r) === todayDateStr)
+          .reduce((sum, r) => sum + parseVal(r), 0);
 
         return {
           id: s.id,
-          code: s.inverter_code || s.code || `Solar-${String(s.id).slice(0, 6)}`,
-          label: s.label_en || s.label_ar || s.inverter_code || s.code || `Solar-${String(s.id).slice(0, 6)}`,
+          code: s.inverter_code || s.code || `Solar-${s.id.slice(0, 6)}`,
+          label: s.label_en || s.label_ar || s.inverter_code || s.code || `Solar-${s.id.slice(0, 6)}`,
           yield: todayYield,
           totalYield,
         };
@@ -273,6 +264,7 @@ export default async function DeskPage() {
     };
   });
 
+  // تجميع كل البيانات لتسليمها لـ DeskDashboardContent
   const dashboardPayload = {
     parkNames,
     summary: {
@@ -282,7 +274,7 @@ export default async function DeskPage() {
       monthWater,
       todaySolar,
       monthSolar,
-      buildingsCount: ((buildings as any[]) ?? []).length,
+      buildingsCount: (buildings ?? []).length,
       floorCount: floorCount ?? 0,
       electricMetersCount: validElecMeters.length,
       waterMetersCount: validWaterMeters.length,
