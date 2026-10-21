@@ -34,28 +34,6 @@ export function WaterMetersPageContent() {
       );
   }, []);
 
-  // دالة مسح العداد
-  const handleDeleteMeter = async (id: string, label: string) => {
-    if (!confirm(`Are you sure you want to delete water meter "${label}"?`)) {
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/admin/water-meters/${id}`, {
-        method: "DELETE",
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to delete water meter");
-      }
-
-      window.location.reload();
-    } catch (error) {
-      alert("Error deleting water meter. Please try again.");
-      console.error(error);
-    }
-  };
-
   return (
     <AdminListPage<WaterMeterRow>
       title="Water Meters"
@@ -66,6 +44,22 @@ export function WaterMetersPageContent() {
       statusFieldLabel="water meter"
       searchPlaceholder="Search by label or meter code…"
       newLabel="+ New water meter"
+      // تفعيل زر وحوار الحذف تلقائياً بنفس نمط صفحة عدادات الكهرباء
+      deleteLabel="water meter"
+      onDelete={async (row) => {
+        try {
+          const res = await fetch(`/api/admin/water-meters/${row.id}`, {
+            method: "DELETE",
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            return { ok: false, error: body.detail || body.error || "DELETE_FAILED" };
+          }
+          return { ok: true };
+        } catch (err: any) {
+          return { ok: false, error: err.message };
+        }
+      }}
       filters={[
         {
           key: "parkId",
@@ -90,25 +84,24 @@ export function WaterMetersPageContent() {
         { key: "meter_code", label: "Code" },
         { key: "technology_parks", label: "Technology Park", render: parkName },
         { key: "type", label: "Type", render: (r) => <span className="capitalize">{r.type}</span> },
-        { key: "reading_frequency", label: "Frequency", render: (r) => <span className="capitalize">{r.reading_frequency.toLowerCase()}</span> },
-        { key: "is_active", label: "Status", render: (r) => <Badge tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Disabled"}</Badge> },
         {
-          key: "delete_action",
-          label: "Delete",
+          key: "reading_frequency",
+          label: "Frequency",
+          render: (r) => <span className="capitalize">{r.reading_frequency.toLowerCase()}</span>,
+        },
+        {
+          key: "is_active",
+          label: "Status",
           render: (r) => (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDeleteMeter(r.id, r.label_en);
-              }}
-              className="px-2.5 py-1 text-xs font-semibold rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
-            >
-              Delete
-            </button>
+            <Badge tone={r.is_active ? "success" : "danger"}>
+              {r.is_active ? "Active" : "Disabled"}
+            </Badge>
           ),
         },
       ]}
-      renderForm={({ record, onDone, onCancel }) => <WaterMeterForm record={record} onDone={onDone} onCancel={onCancel} />}
+      renderForm={({ record, onDone, onCancel }) => (
+        <WaterMeterForm record={record} onDone={onDone} onCancel={onCancel} />
+      )}
     />
   );
 }
