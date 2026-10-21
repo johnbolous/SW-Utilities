@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
   const buildingParkMap = new Map(validBuildings.map((b) => [b.id, b.technology_park_id]));
   const safeBuildingIds = buildingIds.length ? buildingIds : ["00000000-0000-0000-0000-000000000000"];
 
-  // 4. جلب العدادات بشكل مرن يضمن شمولية المياه غير المرتبطة بمبنى (building_id = null)
+  // 4. جلب العدادات (استخدام الـ park_id لعدم تقييد المياه بوجود مبنى إجباري، تماماً مثل صفحة الأدمن)
   const [
     { count: floorCount },
     { data: electricMeters },
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
   ] = await Promise.all([
     supabase.from("floors").select("id", { count: "exact", head: true }).in("building_id", safeBuildingIds),
     supabase.from("meters").select("*").in("building_id", safeBuildingIds),
-    supabase.from("water_meters").select("*").or(`building_id.in.(${safeBuildingIds.join(",")}),technology_park_id.in.(${safeParkIds.join(",")}),building_id.is.null`),
+    supabase.from("water_meters").select("*").in("technology_park_id", safeParkIds),
     supabase.from("solar_inverters").select("*").in("building_id", safeBuildingIds),
   ]);
 
@@ -180,7 +180,7 @@ export async function GET(request: NextRequest) {
   });
 
   validWaterMeters.forEach((meter: any) => {
-    let parkId = meter.technology_park_id || meter.park_id || buildingParkMap.get(meter.building_id);
+    let parkId = meter.technology_park_id || meter.park_id || (meter.building_id ? buildingParkMap.get(meter.building_id) : null);
     if (!parkId && finalParks.length > 0) {
       parkId = finalParks[0].id;
     }
@@ -230,7 +230,7 @@ export async function GET(request: NextRequest) {
   const waterByBuildingMap = new Map<string, number>();
   safeWater.forEach((r) => {
     const meter = validWaterMeters.find((w: any) => w.id === (r.water_meter_id || r.meter_id));
-    const bName = meter ? (buildingMap.get(meter.building_id) ?? "Building") : "Building";
+    const bName = meter && meter.building_id ? (buildingMap.get(meter.building_id) ?? "Building") : "Direct Park Meter";
     waterByBuildingMap.set(bName, (waterByBuildingMap.get(bName) ?? 0) + parseVal(r));
   });
 
