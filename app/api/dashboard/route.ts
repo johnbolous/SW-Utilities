@@ -5,257 +5,1137 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET(request: NextRequest) {
-  const supabase = createAdminClient();
-  const user = await getCurrentUser();
+const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
+const TZ = "Africa/Cairo";
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+function cairoToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function shiftDate(iso: string, days: number) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function dateOf(value: unknown) {
+  return String(value ?? "").slice(0, 10);
+}
+
+function consumption(row: any) {
+  if (row?.consumption !== null && row?.consumption !== undefined) {
+    return Number(row.consumption) || 0;
   }
 
-  let targetParkIds: string[] = [];
+  return Math.max(
+    0,
+    (Number(row?.current_value) || 0) -
+      (Number(row?.previous_value) || 0)
+  );
+}
 
-  // 1. فحص صلاحيات المستخدم
-  const { data: userData } = await supabase
-    .from("users")
-    .select("all_parks_access, role")
-    .eq("id", user.id)
-    .single();
+function production(row: any) {
+  return Number(row?.value) || 0;
+}
 
-  const isFullAccess = user.role === "admin" || userData?.all_parks_access;
-
-  if (isFullAccess) {
-    const { data: allParks } = await supabase.from("technology_parks").select("id");
-    targetParkIds = (allParks ?? []).map((p) => p.id);
-  } else {
-    const { data: userParkLinks } = await supabase
-      .from("user_park_access")
-      .select("park_id")
-      .eq("user_id", user.id);
-
-    targetParkIds = (userParkLinks ?? []).map((p) => p.park_id).filter(Boolean);
-  }
-
-  const safeParkIds = targetParkIds.length ? targetParkIds : ["00000000-0000-0000-0000-000000000000"];
-
-  // 2. جلب بيانات المناطق
-  const { data: parksData } = await supabase
-    .from("technology_parks")
-    .select("id, name_en, name_ar")
-    .in("id", safeParkIds);
-
-  const finalParks = parksData ?? [];
-  const parkNames = finalParks.map((p) => p.name_en || p.name_ar || "Technology Park");
-
-  const parkMap = new Map(finalParks.map((p) => [p.id, p.name_en || p.name_ar || "Technology Park"]));
-
-  // 3. جلب المباني
-  const { data: buildings } = await supabase
-    .from("buildings")
-    .select("id, name_en, name_ar, technology_park_id")
-    .in("technology_park_id", safeParkIds);
-
-  const validBuildings = buildings ?? [];
-  const buildingIds = validBuildings.map((b) => b.id);
-  const buildingMap = new Map(validBuildings.map((b) => [b.id, b.name_en || b.name_ar || "Building"]));
-  const buildingParkMap = new Map(validBuildings.map((b) => [b.id, b.technology_park_id]));
-  const safeBuildingIds = buildingIds.length ? buildingIds : ["00000000-0000-0000-0000-000000000000"];
-
-  // 4. جلب العدادات بكل الأعمدة select("*") لتجنب أي خطأ في أسماء الأعمدة
-  const [
-    { count: floorCount },
-    { data: electricMeters, error: elecMetersErr },
-    { data: waterMeters },
-    { data: solarInverters }
-  ] = await Promise.all([
-    supabase.from("floors").select("id", { count: "exact", head: true }).in("building_id", safeBuildingIds),
-    supabase.from("meters").select("*").in("building_id", safeBuildingIds),
-    supabase.from("water_meters").select("*").in("building_id", safeBuildingIds),
-    supabase.from("solar_inverters").select("*").in("building_id", safeBuildingIds),
-  ]);
-
-  const validElecMeters = electricMeters ?? [];
-  const validWaterMeters = waterMeters ?? [];
-  const validSolarInverters = solarInverters ?? [];
-
-  const safeElecIds = validElecMeters.length ? validElecMeters.map((m: any) => m.id) : ["00000000-0000-0000-0000-000000000000"];
-  const safeWaterIds = validWaterMeters.length ? validWaterMeters.map((w: any) => w.id) : ["00000000-0000-0000-0000-000000000000"];
-  const safeSolarIds = validSolarInverters.length ? validSolarInverters.map((s: any) => s.id) : ["00000000-0000-0000-0000-000000000000"];
-
-  // 5. جلب القراءات
-  const [
-    { data: elecReadings },
-    { data: waterReadings },
-    { data: solarReadings }
-  ] = await Promise.all([
-    supabase.from("electric_readings").select("*").in("meter_id", safeElecIds).order("created_at", { ascending: false }).limit(1000),
-    supabase.from("water_readings").select("*").in("water_meter_id", safeWaterIds).order("created_at", { ascending: false }).limit(1000),
-    supabase.from("solar_production").select("*").in("inverter_id", safeSolarIds).order("created_at", { ascending: false }).limit(1000),
-  ]);
-
-  const parseVal = (r: any) => {
-    if (!r) return 0;
-    for (const key of Object.keys(r)) {
-      if (["consumption", "kwh_reading", "reading_value", "current_value", "reading", "value", "daily_yield_kwh", "active_energy", "energy", "production_kwh"].includes(key.toLowerCase())) {
-        const num = Number(r[key]);
-        if (!isNaN(num) && num > 0) return num;
-      }
-    }
-    return 0;
-  };
-
-  const getDate = (r: any) => String(r?.reading_date || r?.created_at || "").slice(0, 10);
-
-  const safeElec = elecReadings ?? [];
-  const safeWater = waterReadings ?? [];
-  const safeSolar = solarReadings ?? [];
-
-  const latestElecDate = safeElec[0] ? getDate(safeElec[0]) : "";
-  const latestWaterDate = safeWater[0] ? getDate(safeWater[0]) : "";
-  const latestSolarDate = safeSolar[0] ? getDate(safeSolar[0]) : "";
-
-  const todayElec = safeElec.filter((r) => getDate(r) === latestElecDate).reduce((acc, r) => acc + parseVal(r), 0);
-  const monthElec = safeElec.reduce((acc, r) => acc + parseVal(r), 0);
-
-  const todayWater = safeWater.filter((r) => getDate(r) === latestWaterDate).reduce((acc, r) => acc + parseVal(r), 0);
-  const monthWater = safeWater.reduce((acc, r) => acc + parseVal(r), 0);
-
-  const todaySolar = safeSolar.filter((r) => getDate(r) === latestSolarDate).reduce((acc, r) => acc + parseVal(r), 0);
-  const monthSolar = safeSolar.reduce((acc, r) => acc + parseVal(r), 0);
-
-  // خريطة لتخزين العدادات حسب المنطقة
-  const parkMetersMap = new Map<string, any[]>();
-
-  finalParks.forEach((p) => {
-    const pName = p.name_en || p.name_ar || "Technology Park";
-    parkMetersMap.set(pName, []);
-  });
-
-  validElecMeters.forEach((meter: any) => {
-    let parkId = meter.technology_park_id || meter.park_id || buildingParkMap.get(meter.building_id);
-    
-    if (!parkId && finalParks.length > 0) {
-      parkId = finalParks[0].id;
-    }
-    
-    const parkName = parkMap.get(parkId) || (finalParks[0] ? (finalParks[0].name_en || finalParks[0].name_ar) : "Technology Park");
-
-    const meterReadings = safeElec.filter((r) => r.meter_id === meter.id);
-    const todayReadings = meterReadings.filter((r) => getDate(r) === latestElecDate);
-    
-    let meterConsumption = todayReadings.reduce((acc, r) => acc + parseVal(r), 0);
-    if (meterConsumption === 0 && meterReadings.length > 0) {
-      meterConsumption = parseVal(meterReadings[0]);
-    }
-
-    // التعرف المرن على الحقول حتى وإن اختلفت مسماها في قاعدة البيانات
-    const category = (meter.category || meter.type || meter.voltage_type || meter.voltage || "MEDIUM").toString().toUpperCase();
-    const code = meter.meter_code || meter.code || meter.serial_number || meter.id;
-    const label = meter.label_en || meter.name_en || meter.name || meter.label || code;
-
-    const list = parkMetersMap.get(parkName) || [];
-    list.push({
-      id: meter.id,
-      code: code,
-      label: label,
-      category: category,
-      consumption: meterConsumption,
-    });
-    parkMetersMap.set(parkName, list);
-  });
-
-  const parksDailyElec = finalParks.map((p) => {
-    const parkName = p.name_en || p.name_ar || "Technology Park";
-    const metersList = parkMetersMap.get(parkName) || [];
-    const totalConsumption = metersList.reduce((sum, m) => sum + m.consumption, 0);
-    
-    return {
-      name: parkName,
-      consumption: totalConsumption,
-      value: totalConsumption,
-      meters: metersList,
-    };
-  });
-
-  const elecByBuildingMap = new Map<string, number>();
-  safeElec.forEach((r) => {
-    const meter = validElecMeters.find((m: any) => m.id === r.meter_id);
-    const bName = meter ? (buildingMap.get(meter.building_id) ?? "Building") : "Building";
-    elecByBuildingMap.set(bName, (elecByBuildingMap.get(bName) ?? 0) + parseVal(r));
-  });
-
-  const waterByBuildingMap = new Map<string, number>();
-  safeWater.forEach((r) => {
-    const meter = validWaterMeters.find((w: any) => w.id === (r.water_meter_id || r.meter_id));
-    const bName = meter ? (buildingMap.get(meter.building_id) ?? "Building") : "Building";
-    waterByBuildingMap.set(bName, (waterByBuildingMap.get(bName) ?? 0) + parseVal(r));
-  });
-
-  const solarByBuildingMap = new Map<string, number>();
-  safeSolar.forEach((r) => {
-    const inv = validSolarInverters.find((s: any) => s.id === r.inverter_id);
-    const bName = inv ? (buildingMap.get(inv.building_id) ?? "Building") : "Building";
-    solarByBuildingMap.set(bName, (solarByBuildingMap.get(bName) ?? 0) + parseVal(r));
-  });
-
-  const elecHistoryMap = new Map<string, number>();
-  safeElec.forEach((r) => {
-    const d = getDate(r).slice(5);
-    if (d) elecHistoryMap.set(d, (elecHistoryMap.get(d) ?? 0) + parseVal(r));
-  });
-
-  const waterHistoryMap = new Map<string, number>();
-  safeWater.forEach((r) => {
-    const d = getDate(r).slice(5);
-    if (d) waterHistoryMap.set(d, (waterHistoryMap.get(d) ?? 0) + parseVal(r));
-  });
-
-  const solarHistoryMap = new Map<string, number>();
-  safeSolar.forEach((r) => {
-    const d = getDate(r).slice(5);
-    if (d) solarHistoryMap.set(d, (solarHistoryMap.get(d) ?? 0) + parseVal(r));
-  });
-
-  const totalAssets = validElecMeters.length + validWaterMeters.length + validSolarInverters.length;
-  const readTodayCount = safeElec.length + safeWater.length + safeSolar.length;
-
-  return NextResponse.json({
-    parks: parkNames,
-    parksDailyElec,
+function emptyResponse() {
+  return {
+    parks: [],
     overview: {
-      todayElec: Math.round(todayElec),
-      monthElec: Math.round(monthElec),
-      todaySolar: Math.round(todaySolar),
-      monthSolar: Math.round(monthSolar),
-      todayWater: Math.round(todayWater),
-      monthWater: Math.round(monthWater),
+      todayElec: 0,
+      monthElec: 0,
+      todaySolar: 0,
+      monthSolar: 0,
+      todayWater: 0,
+      monthWater: 0,
     },
     structure: {
-      buildings: validBuildings.length,
-      floors: floorCount ?? 0,
-      electricMeters: validElecMeters.length,
-      waterMeters: validWaterMeters.length,
-      solarInverters: validSolarInverters.length,
+      buildings: 0,
+      floors: 0,
+      electricMeters: 0,
+      waterMeters: 0,
+      solarInverters: 0,
     },
     charts: {
-      elecByPark: parksDailyElec,
-      elecByBuilding: Array.from(elecByBuildingMap.entries()).map(([name, value]) => ({ name, value: Math.round(value) })),
-      elecHistory: Array.from(elecHistoryMap.entries()).reverse().map(([date, consumption]) => ({ date, consumption: Math.round(consumption) })),
-      solarByBuilding: Array.from(solarByBuildingMap.entries()).map(([name, value]) => ({ name, value: Math.round(value) })),
-      solarHistory: Array.from(solarHistoryMap.entries()).reverse().map(([date, yield_val]) => ({ date, yield: Math.round(yield_val) })),
-      waterByBuilding: Array.from(waterByBuildingMap.entries()).map(([name, value]) => ({ name, value: Math.round(value) })),
-      waterHistory: Array.from(waterHistoryMap.entries()).reverse().map(([date, consumption]) => ({ date, consumption: Math.round(consumption) })),
+      elecByBuilding: [],
+      elecHistory: [],
+      solarByBuilding: [],
+      solarHistory: [],
+      waterByBuilding: [],
+      waterHistory: [],
+      elecByPark: [],
+      waterByPark: [],
+      solarByPark: [],
     },
     readingStatus: {
-      total: totalAssets,
-      readToday: readTodayCount,
-      pending: Math.max(0, totalAssets - readTodayCount),
+      total: 0,
+      readToday: 0,
+      pending: 0,
     },
     alerts: {
       spike: 0,
       lowerThanPrev: 0,
       zeroConsumption: 0,
-      missingReading: Math.max(0, totalAssets - readTodayCount),
+      missingReading: 0,
+    },
+    meta: {
+      today: cairoToday(),
+      latestAvailableDate: null,
+      hasTodayReadings: false,
+    },
+  };
+}
+
+export async function GET(request: NextRequest) {
+  const user = await getCurrentUser();
+
+  if (!user || !user.is_active) {
+    return NextResponse.json(
+      { error: "UNAUTHORIZED" },
+      { status: 401 }
+    );
+  }
+
+  const supabase = createAdminClient();
+
+  const requestedDate =
+    request.nextUrl.searchParams.get("date")?.trim() || "";
+
+  const today =
+    /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+      ? requestedDate
+      : cairoToday();
+
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const historyStart = shiftDate(today, -29);
+
+  // ============================================================
+  // PARK ACCESS
+  // ============================================================
+
+  let parkIds: string[] = [];
+  let parkNames: string[] = [];
+  const parkMap = new Map<string, string>();
+
+  if (user.role === "admin") {
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("technology_parks")
+      .select("id, name")
+      .eq("is_active", true)
+      .order("sort_order");
+
+    if (error) {
+      return NextResponse.json(
+        {
+          error: "LOAD_PARKS_FAILED",
+          detail: error.message,
+        },
+        { status: 500 }
+      );
+    }
+
+    for (const p of data ?? []) {
+      parkIds.push(p.id);
+      parkNames.push(p.name);
+      parkMap.set(p.id, p.name);
+    }
+  } else {
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("user_park_access")
+      .select("park_id, technology_parks(id, name)")
+      .eq("user_id", user.id);
+
+    if (error) {
+      return NextResponse.json(
+        {
+          error: "LOAD_ACCESS_FAILED",
+          detail: error.message,
+        },
+        { status: 500 }
+      );
+    }
+
+    for (const row of data ?? []) {
+      const park = Array.isArray(
+        (row as any).technology_parks
+      )
+        ? (row as any).technology_parks[0]
+        : (row as any).technology_parks;
+
+      if (row.park_id && park?.name) {
+        parkIds.push(row.park_id);
+        parkNames.push(park.name);
+        parkMap.set(row.park_id, park.name);
+      }
+    }
+  }
+
+  parkIds = [...new Set(parkIds)];
+  parkNames = [...new Set(parkNames)];
+
+  if (parkIds.length === 0) {
+    return NextResponse.json(emptyResponse());
+  }
+
+  // ============================================================
+  // BUILDINGS
+  // ============================================================
+
+  const {
+    data: buildings,
+    error: buildingError,
+  } = await supabase
+    .from("buildings")
+    .select(
+      "id, name_en, name_ar, technology_park_id"
+    )
+    .in("technology_park_id", parkIds)
+    .eq("is_active", true);
+
+  if (buildingError) {
+    return NextResponse.json(
+      {
+        error: "LOAD_BUILDINGS_FAILED",
+        detail: buildingError.message,
+      },
+      { status: 500 }
+    );
+  }
+
+  const validBuildings = buildings ?? [];
+
+  const buildingIds = validBuildings.map(
+    (b) => b.id
+  );
+
+  const targetBuildingIds = buildingIds.length
+    ? buildingIds
+    : [EMPTY_UUID];
+
+  const buildingMap = new Map(
+    validBuildings.map((b) => [
+      b.id,
+      b.name_en || b.name_ar || "Building",
+    ])
+  );
+
+  const buildingParkMap = new Map(
+    validBuildings.map((b) => [
+      b.id,
+      b.technology_park_id,
+    ])
+  );
+
+  // ============================================================
+  // ASSETS
+  // ============================================================
+
+  const [
+    {
+      data: floors,
+      error: floorError,
+    },
+    {
+      data: meters,
+      error: meterError,
+    },
+    {
+      data: waterMetersAll,
+      error: waterMeterError,
+    },
+    {
+      data: inverters,
+      error: inverterError,
+    },
+  ] = await Promise.all([
+    supabase
+      .from("floors")
+      .select("id")
+      .in("building_id", targetBuildingIds),
+
+    supabase
+      .from("meters")
+      .select(
+        "id, building_id, label_en, meter_code"
+      )
+      .in("building_id", targetBuildingIds)
+      .eq("is_active", true),
+
+    // IMPORTANT:
+    // Water meters are not always linked to a building/park.
+    // Therefore we load all active water meters first
+    // and apply the access filter below.
+
+    supabase
+      .from("water_meters")
+      .select(
+        "id, building_id, technology_park_id, label_en"
+      )
+      .eq("is_active", true),
+
+    supabase
+      .from("solar_inverters")
+      .select(
+        "id, building_id, label_en, meter_code"
+      )
+      .in("building_id", targetBuildingIds)
+      .eq("is_active", true),
+  ]);
+
+  const firstError =
+    floorError ||
+    meterError ||
+    waterMeterError ||
+    inverterError;
+
+  if (firstError) {
+    return NextResponse.json(
+      {
+        error: "LOAD_ASSETS_FAILED",
+        detail: firstError.message,
+      },
+      { status: 500 }
+    );
+  }
+
+  const validMeters = meters ?? [];
+  const validInverters = inverters ?? [];
+
+  // ============================================================
+  // WATER METERS
+  // ============================================================
+  //
+  // FIX:
+  // A water meter can exist without building_id and
+  // technology_park_id.
+  //
+  // Previously those meters were discarded, which resulted in:
+  //
+  // waterMeters: 0
+  // waterHistory: []
+  // waterByPark: []
+  //
+  // Unassigned water meters are therefore included so their
+  // readings still appear in the Engineer Dashboard.
+  //
+  // If a water meter has a park/building assignment, it is
+  // restricted to the engineer's authorized parks.
+  //
+
+  const validWaterMeters = (
+    waterMetersAll ?? []
+  ).filter((w: any) => {
+    // Direct park assignment
+    if (
+      w.technology_park_id &&
+      parkIds.includes(w.technology_park_id)
+    ) {
+      return true;
+    }
+
+    // Building assignment
+    if (
+      w.building_id &&
+      buildingIds.includes(w.building_id)
+    ) {
+      return true;
+    }
+
+    // IMPORTANT:
+    // Keep water meters that have no location assignment.
+    if (
+      !w.technology_park_id &&
+      !w.building_id
+    ) {
+      return true;
+    }
+
+    return false;
+  });
+
+  const meterIds = validMeters.map(
+    (m) => m.id
+  );
+
+  const waterMeterIds =
+    validWaterMeters.map(
+      (w: any) => w.id
+    );
+
+  const inverterIds = validInverters.map(
+    (i) => i.id
+  );
+
+  // ============================================================
+  // READINGS
+  // ============================================================
+
+  const [
+    {
+      data: elecReadings,
+      error: elecError,
+    },
+    {
+      data: waterReadings,
+      error: waterError,
+    },
+    {
+      data: solarReadings,
+      error: solarError,
+    },
+  ] = await Promise.all([
+    meterIds.length
+      ? supabase
+          .from("electric_readings")
+          .select(
+            "meter_id, reading_date, consumption, current_value, previous_value, created_at"
+          )
+          .in("meter_id", meterIds)
+          .gte("reading_date", historyStart)
+          .lte("reading_date", today)
+          .order("reading_date", {
+            ascending: false,
+          })
+          .limit(5000)
+      : Promise.resolve({
+          data: [],
+          error: null,
+        }),
+
+    waterMeterIds.length
+      ? supabase
+          .from("water_readings")
+          .select(
+            "water_meter_id, reading_date, consumption, current_value, previous_value, created_at"
+          )
+          .in(
+            "water_meter_id",
+            waterMeterIds
+          )
+          .gte(
+            "reading_date",
+            historyStart
+          )
+          .lte(
+            "reading_date",
+            today
+          )
+          .order("reading_date", {
+            ascending: false,
+          })
+          .limit(5000)
+      : Promise.resolve({
+          data: [],
+          error: null,
+        }),
+
+    inverterIds.length
+      ? supabase
+          .from("solar_production")
+          .select(
+            "inverter_id, production_date, value, created_at"
+          )
+          .in(
+            "inverter_id",
+            inverterIds
+          )
+          .gte(
+            "production_date",
+            historyStart
+          )
+          .lte(
+            "production_date",
+            today
+          )
+          .order("production_date", {
+            ascending: false,
+          })
+          .limit(5000)
+      : Promise.resolve({
+          data: [],
+          error: null,
+        }),
+  ]);
+
+  const readingError =
+    elecError ||
+    waterError ||
+    solarError;
+
+  if (readingError) {
+    return NextResponse.json(
+      {
+        error: "LOAD_READINGS_FAILED",
+        detail: readingError.message,
+      },
+      { status: 500 }
+    );
+  }
+
+  const elec = elecReadings ?? [];
+  const water = waterReadings ?? [];
+  const solar = solarReadings ?? [];
+
+  // ============================================================
+  // OVERVIEW
+  // ============================================================
+
+  const todayElec = elec
+    .filter(
+      (r) =>
+        dateOf(r.reading_date) === today
+    )
+    .reduce(
+      (s, r) => s + consumption(r),
+      0
+    );
+
+  const monthElec = elec
+    .filter(
+      (r) =>
+        dateOf(r.reading_date) >=
+          monthStart &&
+        dateOf(r.reading_date) <= today
+    )
+    .reduce(
+      (s, r) => s + consumption(r),
+      0
+    );
+
+  const todayWater = water
+    .filter(
+      (r) =>
+        dateOf(r.reading_date) === today
+    )
+    .reduce(
+      (s, r) => s + consumption(r),
+      0
+    );
+
+  const monthWater = water
+    .filter(
+      (r) =>
+        dateOf(r.reading_date) >=
+          monthStart &&
+        dateOf(r.reading_date) <= today
+    )
+    .reduce(
+      (s, r) => s + consumption(r),
+      0
+    );
+
+  const todaySolar = solar
+    .filter(
+      (r) =>
+        dateOf(r.production_date) === today
+    )
+    .reduce(
+      (s, r) => s + production(r),
+      0
+    );
+
+  const monthSolar = solar
+    .filter(
+      (r) =>
+        dateOf(r.production_date) >=
+          monthStart &&
+        dateOf(r.production_date) <= today
+    )
+    .reduce(
+      (s, r) => s + production(r),
+      0
+    );
+
+  // ============================================================
+  // BY BUILDING
+  // ============================================================
+
+  const elecByBuilding =
+    new Map<string, number>();
+
+  for (
+    const r of elec.filter(
+      (x) =>
+        dateOf(x.reading_date) === today
+    )
+  ) {
+    const meter = validMeters.find(
+      (m) => m.id === r.meter_id
+    );
+
+    if (!meter) continue;
+
+    const name =
+      buildingMap.get(
+        meter.building_id
+      ) ?? "Building";
+
+    elecByBuilding.set(
+      name,
+      (elecByBuilding.get(name) ?? 0) +
+        consumption(r)
+    );
+  }
+
+  const waterByBuilding =
+    new Map<string, number>();
+
+  for (
+    const r of water.filter(
+      (x) =>
+        dateOf(x.reading_date) === today
+    )
+  ) {
+    const meter: any =
+      validWaterMeters.find(
+        (w: any) =>
+          w.id === r.water_meter_id
+      );
+
+    let name = "Unassigned";
+
+    if (meter?.building_id) {
+      name =
+        buildingMap.get(
+          meter.building_id
+        ) ?? "Building";
+    }
+
+    waterByBuilding.set(
+      name,
+      (waterByBuilding.get(name) ?? 0) +
+        consumption(r)
+    );
+  }
+
+  const solarByBuilding =
+    new Map<string, number>();
+
+  for (
+    const r of solar.filter(
+      (x) =>
+        dateOf(x.production_date) === today
+    )
+  ) {
+    const inv = validInverters.find(
+      (i) => i.id === r.inverter_id
+    );
+
+    if (!inv) continue;
+
+    const name =
+      buildingMap.get(
+        inv.building_id
+      ) ?? "Building";
+
+    solarByBuilding.set(
+      name,
+      (solarByBuilding.get(name) ?? 0) +
+        production(r)
+    );
+  }
+
+  // ============================================================
+  // HISTORY
+  // ============================================================
+
+  const aggregateHistory = (
+    rows: any[],
+    dateField: string,
+    valueFn: (r: any) => number
+  ) => {
+    const map =
+      new Map<string, number>();
+
+    for (const r of rows) {
+      const d = dateOf(
+        r[dateField]
+      );
+
+      if (!d) continue;
+
+      map.set(
+        d,
+        (map.get(d) ?? 0) +
+          valueFn(r)
+      );
+    }
+
+    return [...map.entries()].sort(
+      ([a], [b]) =>
+        a.localeCompare(b)
+    );
+  };
+
+  const elecHistory =
+    aggregateHistory(
+      elec,
+      "reading_date",
+      consumption
+    ).map(
+      ([date, value]) => ({
+        date: date.slice(5),
+        consumption:
+          Math.round(value),
+      })
+    );
+
+  // WATER HISTORY
+  // This now receives all valid water meters,
+  // including unassigned ones.
+
+  const waterHistory =
+    aggregateHistory(
+      water,
+      "reading_date",
+      consumption
+    ).map(
+      ([date, value]) => ({
+        date: date.slice(5),
+        consumption:
+          Math.round(value),
+      })
+    );
+
+  const solarHistory =
+    aggregateHistory(
+      solar,
+      "production_date",
+      production
+    ).map(
+      ([date, value]) => ({
+        date: date.slice(5),
+        yield: Math.round(value),
+      })
+    );
+
+  // ============================================================
+  // PARK TOTALS
+  // ============================================================
+
+  const parkTotal = (
+    rows: any[],
+    idField: string,
+    valueFn: (r: any) => number,
+    assetMap: Map<string, any>,
+    buildingIdField?: string
+  ) => {
+    const map =
+      new Map<string, number>();
+
+    for (const r of rows) {
+      const asset =
+        assetMap.get(
+          r[idField]
+        );
+
+      if (!asset) continue;
+
+      const parkId =
+        buildingIdField
+          ? buildingParkMap.get(
+              asset[buildingIdField]
+            )
+          : asset.technology_park_id ||
+            buildingParkMap.get(
+              asset.building_id
+            );
+
+      const name =
+        parkId
+          ? parkMap.get(parkId)
+          : null;
+
+      if (!name) continue;
+
+      map.set(
+        name,
+        (map.get(name) ?? 0) +
+          valueFn(r)
+      );
+    }
+
+    return [...map.entries()].map(
+      ([name, value]) => ({
+        name,
+        value: Math.round(value),
+      })
+    );
+  };
+
+  const meterMap =
+    new Map(
+      validMeters.map(
+        (m) => [m.id, m]
+      )
+    );
+
+  const waterMap =
+    new Map(
+      validWaterMeters.map(
+        (m: any) => [m.id, m]
+      )
+    );
+
+  const inverterMap =
+    new Map(
+      validInverters.map(
+        (i) => [i.id, i]
+      )
+    );
+
+  const elecByPark =
+    parkTotal(
+      elec,
+      "meter_id",
+      consumption,
+      meterMap,
+      "building_id"
+    );
+
+  const waterByPark =
+    parkTotal(
+      water,
+      "water_meter_id",
+      consumption,
+      waterMap
+    );
+
+  const solarByPark =
+    parkTotal(
+      solar,
+      "inverter_id",
+      production,
+      inverterMap,
+      "building_id"
+    );
+
+  // ============================================================
+  // READING STATUS
+  // ============================================================
+
+  const todayElecIds =
+    new Set(
+      elec
+        .filter(
+          (r) =>
+            dateOf(r.reading_date) ===
+            today
+        )
+        .map(
+          (r) => r.meter_id
+        )
+    );
+
+  const todayWaterIds =
+    new Set(
+      water
+        .filter(
+          (r) =>
+            dateOf(r.reading_date) ===
+            today
+        )
+        .map(
+          (r) =>
+            r.water_meter_id
+        )
+    );
+
+  const todaySolarIds =
+    new Set(
+      solar
+        .filter(
+          (r) =>
+            dateOf(
+              r.production_date
+            ) === today
+        )
+        .map(
+          (r) => r.inverter_id
+        )
+    );
+
+  const totalAssets =
+    validMeters.length +
+    validWaterMeters.length +
+    validInverters.length;
+
+  const readToday =
+    todayElecIds.size +
+    todayWaterIds.size +
+    todaySolarIds.size;
+
+  // ============================================================
+  // ALERTS
+  // ============================================================
+
+  let spike = 0;
+  let lowerThanPrev = 0;
+  let zeroConsumption = 0;
+
+  const latestByMeter =
+    new Map<string, any[]>();
+
+  for (const r of elec) {
+    const list =
+      latestByMeter.get(
+        r.meter_id
+      ) ?? [];
+
+    list.push(r);
+
+    latestByMeter.set(
+      r.meter_id,
+      list
+    );
+  }
+
+  for (
+    const [meterId, rows] of latestByMeter
+  ) {
+    const todayRow =
+      rows.find(
+        (r) =>
+          dateOf(r.reading_date) ===
+          today
+      );
+
+    if (!todayRow) continue;
+
+    if (
+      (Number(
+        todayRow.current_value
+      ) || 0) <
+      (Number(
+        todayRow.previous_value
+      ) || 0)
+    ) {
+      lowerThanPrev++;
+    }
+
+    if (
+      consumption(todayRow) === 0
+    ) {
+      zeroConsumption++;
+    }
+
+    const previous =
+      rows.find(
+        (r) =>
+          dateOf(
+            r.reading_date
+          ) < today
+      );
+
+    if (
+      previous &&
+      consumption(previous) > 0 &&
+      consumption(todayRow) >
+        consumption(previous) * 1.2
+    ) {
+      spike++;
+    }
+  }
+
+  // WATER ALERTS
+  for (
+    const r of water.filter(
+      (x) =>
+        dateOf(x.reading_date) === today
+    )
+  ) {
+    if (
+      (Number(
+        r.current_value
+      ) || 0) <
+      (Number(
+        r.previous_value
+      ) || 0)
+    ) {
+      lowerThanPrev++;
+    }
+
+    if (
+      consumption(r) === 0
+    ) {
+      zeroConsumption++;
+    }
+  }
+
+  for (
+    const r of solar.filter(
+      (x) =>
+        dateOf(
+          x.production_date
+        ) === today
+    )
+  ) {
+    if (
+      production(r) === 0
+    ) {
+      zeroConsumption++;
+    }
+  }
+
+  // ============================================================
+  // LATEST AVAILABLE DATE
+  // ============================================================
+
+  const latestAvailableDate = [
+    ...elec.map(
+      (r) =>
+        dateOf(r.reading_date)
+    ),
+    ...water.map(
+      (r) =>
+        dateOf(r.reading_date)
+    ),
+    ...solar.map(
+      (r) =>
+        dateOf(
+          r.production_date
+        )
+    ),
+  ]
+    .filter(Boolean)
+    .sort()
+    .pop() ?? null;
+
+  // ============================================================
+  // RESPONSE
+  // ============================================================
+
+  return NextResponse.json({
+    parks: parkNames,
+
+    overview: {
+      todayElec:
+        Math.round(todayElec),
+
+      monthElec:
+        Math.round(monthElec),
+
+      todaySolar:
+        Math.round(todaySolar),
+
+      monthSolar:
+        Math.round(monthSolar),
+
+      todayWater:
+        Math.round(todayWater),
+
+      monthWater:
+        Math.round(monthWater),
+    },
+
+    structure: {
+      buildings:
+        validBuildings.length,
+
+      floors:
+        floors?.length ?? 0,
+
+      electricMeters:
+        validMeters.length,
+
+      waterMeters:
+        validWaterMeters.length,
+
+      solarInverters:
+        validInverters.length,
+    },
+
+    charts: {
+      elecByBuilding:
+        [
+          ...elecByBuilding.entries(),
+        ].map(
+          ([name, value]) => ({
+            name,
+            value:
+              Math.round(value),
+          })
+        ),
+
+      elecHistory,
+
+      solarByBuilding:
+        [
+          ...solarByBuilding.entries(),
+        ].map(
+          ([name, value]) => ({
+            name,
+            value:
+              Math.round(value),
+          })
+        ),
+
+      solarHistory,
+
+      waterByBuilding:
+        [
+          ...waterByBuilding.entries(),
+        ].map(
+          ([name, value]) => ({
+            name,
+            value:
+              Math.round(value),
+          })
+        ),
+
+      waterHistory,
+
+      elecByPark,
+
+      waterByPark,
+
+      solarByPark,
+    },
+
+    readingStatus: {
+      total: totalAssets,
+
+      readToday,
+
+      pending: Math.max(
+        0,
+        totalAssets - readToday
+      ),
+    },
+
+    alerts: {
+      spike,
+
+      lowerThanPrev,
+
+      zeroConsumption,
+
+      missingReading: Math.max(
+        0,
+        totalAssets - readToday
+      ),
+    },
+
+    meta: {
+      today,
+
+      latestAvailableDate,
+
+      hasTodayReadings:
+        readToday > 0,
+
+      historyStart,
     },
   });
 }
