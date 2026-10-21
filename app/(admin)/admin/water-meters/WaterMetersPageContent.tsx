@@ -49,7 +49,6 @@ export function WaterMetersPageContent() {
         throw new Error("Failed to delete water meter");
       }
 
-      // إعادة تحميل الصفحة لتحديث الجدول بعد الحذف
       window.location.reload();
     } catch (error) {
       alert("Error deleting water meter. Please try again.");
@@ -94,8 +93,8 @@ export function WaterMetersPageContent() {
         { key: "reading_frequency", label: "Frequency", render: (r) => <span className="capitalize">{r.reading_frequency.toLowerCase()}</span> },
         { key: "is_active", label: "Status", render: (r) => <Badge tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Disabled"}</Badge> },
         {
-          key: "actions",
-          label: "Actions",
+          key: "delete_action",
+          label: "Delete",
           render: (r) => (
             <button
               onClick={(e) => {
