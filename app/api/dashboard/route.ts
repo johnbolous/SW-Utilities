@@ -110,6 +110,8 @@ export async function GET(request: NextRequest) {
   const safeWater = waterReadings ?? [];
   const safeSolar = solarReadings ?? [];
 
+  console.log("DEBUG WATER READINGS:", safeWater.slice(0, 2));
+
   const latestElecDate = safeElec[0] ? getDate(safeElec[0]) : "";
   const latestWaterDate = safeWater[0] ? getDate(safeWater[0]) : "";
   const latestSolarDate = safeSolar[0] ? getDate(safeSolar[0]) : "";
