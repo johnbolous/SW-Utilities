@@ -104,7 +104,6 @@ function calculateMonthlyConsumptionsForAllMeters(readings: any[]) {
   return meterMonthlyMap;
 }
 
-// دالة تجميع إنتاج الطاقة الشمسية اليومي (SUM)
 function calculateMonthlySolarSum(readings: any[]) {
   if (!readings || readings.length === 0) return {};
 
@@ -329,6 +328,67 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const getDeviceCode = (item: any) => {
     return item?.code || item?.meter_code || item?.id || "";
   };
+
+  // محرك الذكاء الاصطناعي لتحليل القراءات وإنشاء الإشعارات التنبيهية الذكية
+  const aiSmartInsights = useMemo(() => {
+    const alerts: { id: string; type: "warning" | "danger" | "info"; title: string; message: string }[] = [];
+
+    // فحص عدادات الكهرباء
+    rawParksElec.forEach((park: any) => {
+      (park.meters || []).forEach((m: any) => {
+        const consumption = Number(m.consumption || 0);
+        const deviceName = getDeviceName(m);
+        const deviceCode = getDeviceCode(m);
+
+        if (consumption > 50000) {
+          alerts.push({
+            id: `elec-high-${m.id}`,
+            type: "danger",
+            title: "استهلاك ضخم غير طبيعي (Electrical Spike)",
+            message: `العداد (${deviceName} - ${codeOrName(deviceCode)}) في ${park.name} سجل استهلاكاً مرتفعاً للغاية بلغ ${consumption.toLocaleString()} kWh اليوم.`
+          });
+        } else if (consumption === 0) {
+          alerts.push({
+            id: `elec-zero-${m.id}`,
+            type: "warning",
+            title: "عداد متوقف / استهلاك صفري",
+            message: `العداد (${deviceName}) في ${park.name} يسجل استهلاكاً بقيمة صفر (القراءة الحالية مساوية للسابقة).`
+          });
+        }
+      });
+    });
+
+    // فحص عدادات المياه
+    rawParksWater.forEach((park: any) => {
+      (park.meters || []).forEach((m: any) => {
+        const consumption = Number(m.consumption || 0);
+        const deviceName = getDeviceName(m);
+        if (consumption > 20000) {
+          alerts.push({
+            id: `water-high-${m.id}`,
+            type: "danger",
+            title: "استهلاك مياه مرتفع جداً",
+            message: `عداد المياه (${deviceName}) في ${park.name} يسجل معدل استهلاك قدره ${consumption.toLocaleString()} m³.`
+          });
+        }
+      });
+    });
+
+    if (alerts.length === 0) {
+      alerts.push({
+        id: "ai-stable",
+        type: "info",
+        title: "حالة النظام مستقرة",
+        message: "لم يتم اكتشاف أي قراءات شاذة أو استهلاكات غير منطقية في جميع العدادات والمناطق الحالية."
+      });
+    }
+
+    return alerts;
+  }, [rawParksElec, rawParksWater]);
+
+  function codeOrName(code: string) {
+    return code || "بدون كود";
+  }
 
   const openPhotoModal = async (meter: any) => {
     setCurrentMeterForPhoto(meter);
@@ -969,6 +1029,40 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         <span className="text-xs text-slate-500 bg-white px-3 py-1 rounded border shadow-sm font-medium">
           Authorized Scope Only
         </span>
+      </div>
+
+      {/* قسم الإشعارات والتحليلات الذكية (AI Smart Notifications & Assistant) */}
+      <div className="bg-gradient-to-l from-slate-900 to-[#0c1427] text-white p-5 rounded-3xl shadow-xl border border-slate-800 space-y-3">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="bg-blue-600 p-1.5 rounded-xl text-sm">🤖</span>
+            <h3 className="font-bold text-sm text-slate-100">مساعد الذكاء الاصطناعي والتنبيهات الذكية (AI Assistant & Anomaly Detection)</h3>
+          </div>
+          <span className="text-[10px] bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full font-bold border border-blue-500/30">
+            تحليل فوري نشط
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-40 overflow-y-auto pr-1">
+          {aiSmartInsights.map((alert) => {
+            const bgClass = alert.type === "danger" 
+              ? "bg-red-500/10 border-red-500/30 text-red-200" 
+              : alert.type === "warning" 
+              ? "bg-amber-500/10 border-amber-500/30 text-amber-200" 
+              : "bg-blue-500/10 border-blue-500/30 text-blue-200";
+            
+            const icon = alert.type === "danger" ? "🚨" : alert.type === "warning" ? "⚠️" : "💡";
+
+            return (
+              <div key={alert.id} className={`p-3 rounded-2xl border flex items-start gap-2.5 text-xs ${bgClass}`}>
+                <span className="text-base">{icon}</span>
+                <div className="space-y-0.5">
+                  <span className="font-bold block text-white">{alert.title}</span>
+                  <p className="text-[11px] opacity-90 leading-relaxed">{alert.message}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap items-center gap-2">
