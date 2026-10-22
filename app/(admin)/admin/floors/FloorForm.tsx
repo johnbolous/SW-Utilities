@@ -12,6 +12,17 @@ interface FloorRecord {
   sort_order: number;
 }
 
+interface BuildingItem {
+  id: string;
+  name_en: string;
+  technology_park_id: string | null;
+}
+
+interface ParkItem {
+  id: string;
+  name: string;
+}
+
 export function FloorForm({
   record,
   onDone,
@@ -22,7 +33,9 @@ export function FloorForm({
   onCancel: () => void;
 }) {
   const isEdit = !!record;
-  const [buildings, setBuildings] = useState<{ id: string; name_en: string }[]>([]);
+  const [parks, setParks] = useState<ParkItem[]>([]);
+  const [buildings, setBuildings] = useState<BuildingItem[]>([]);
+  const [selectedParkId, setSelectedParkId] = useState("");
   const [buildingId, setBuildingId] = useState(record?.building_id ?? "");
   const [code, setCode] = useState(record?.code ?? "");
   const [nameEn, setNameEn] = useState(record?.name_en ?? "");
@@ -32,14 +45,32 @@ export function FloorForm({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/admin/buildings?pageSize=100")
-      .then((res) => res.json())
-      .then((body) => {
-        setBuildings(body.buildings ?? []);
-        if (!buildingId && body.buildings?.length) setBuildingId(body.buildings[0].id);
-      });
+    // جلب المناطق والمباني معاً
+    Promise.all([
+      fetch("/api/admin/parks?pageSize=100").then((res) => res.json()),
+      fetch("/api/admin/buildings?pageSize=100").then((res) => res.json()),
+    ]).then(([parksBody, buildingsBody]) => {
+      const allParks = parksBody.parks ?? [];
+      const allBuildings: BuildingItem[] = buildingsBody.buildings ?? [];
+
+      setParks(allParks);
+      setBuildings(allBuildings);
+
+      if (!buildingId && allBuildings.length) {
+        setBuildingId(allBuildings[0].id);
+        // تعيين المنطقة التابعة أول مبنى افتراضياً إذا وجد
+        if (allBuildings[0].technology_park_id) {
+          setSelectedParkId(allBuildings[0].technology_park_id);
+        }
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // تصفية المباني بناءً على المنطقة المحددة
+  const filteredBuildings = selectedParkId
+    ? buildings.filter((b) => b.technology_park_id === selectedParkId)
+    : buildings;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,10 +106,32 @@ export function FloorForm({
 
       {!isEdit && (
         <>
+          {/* فلتر اختيار المنطقة أولاً */}
+          <FieldLabel>Technology Park</FieldLabel>
+          <Select
+            value={selectedParkId}
+            onChange={(e) => {
+              setSelectedParkId(e.target.value);
+              setBuildingId(""); // إعادة تعيين المبنى عند تغيير المنطقة
+            }}
+            className="mb-3"
+          >
+            <option value="">All Parks / Select Park...</option>
+            {parks.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+
+          {/* اختيار المبنى مفزلاً بناءً على المنطقة */}
           <FieldLabel>Building</FieldLabel>
           <Select value={buildingId} onChange={(e) => setBuildingId(e.target.value)} className="mb-3" required>
-            {buildings.map((b) => (
-              <option key={b.id} value={b.id}>{b.name_en}</option>
+            <option value="">Select Building...</option>
+            {filteredBuildings.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name_en}
+              </option>
             ))}
           </Select>
 
