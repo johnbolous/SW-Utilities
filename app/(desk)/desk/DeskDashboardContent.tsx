@@ -162,8 +162,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return rawParksElec && rawParksElec.length > 0 ? rawParksElec.map((p: any) => p.id) : [];
   });
 
-  // State للتحكم في ظهور قائمة الإشعارات
+  // التحكم في حالة الإشعارات والتبويبات
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notificationTab, setNotificationTab] = useState<"important" | "normal">("important");
+  const [hasUnread, setHasUnread] = useState(true);
 
   // Photo modal states
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
@@ -332,52 +334,50 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return item?.code || item?.meter_code || item?.id || "";
   };
 
-  // استخراج التنبيهات والملاحظات الهامة
-  const importantAlerts = useMemo(() => {
-    const alerts: { id: string; type: "warning" | "danger"; title: string; message: string }[] = [];
+  // استخراج وتقسيم التنبيهات (عاجل وهام / ملاحظات عامة)
+  const categorizedAlerts = useMemo(() => {
+    const important: { id: string; title: string; message: string }[] = [];
+    const normal: { id: string; title: string; message: string }[] = [];
 
-    // فحص عدادات الكهرباء
     rawParksElec.forEach((park: any) => {
       (park.meters || []).forEach((m: any) => {
         const consumption = Number(m.consumption || 0);
         const deviceName = getDeviceName(m);
 
         if (consumption > 50000) {
-          alerts.push({
+          important.push({
             id: `elec-high-${m.id}`,
-            type: "danger",
-            title: "استهلاك مرتفع غير معتاد",
-            message: `العداد (${deviceName}) في ${park.name} يسجل استهلاكاً كبيراً بقيمة ${consumption.toLocaleString()} kWh.`
+            title: "تنبيه: استهلاك فائق",
+            message: `العداد (${deviceName}) في ${park.name} سجل استهلاكاً مرتفعاً قدره ${consumption.toLocaleString()} kWh.`
           });
         } else if (consumption === 0) {
-          alerts.push({
+          normal.push({
             id: `elec-zero-${m.id}`,
-            type: "warning",
-            title: "عداد متوقف / استهلاك صفري",
-            message: `العداد (${deviceName}) في ${park.name} لا يوجد له استهلاك جديد (القراءة الحالية مسابقة للسابقة).`
+            title: "عداد بدون استهلاك",
+            message: `العداد (${deviceName}) في ${park.name} مسجل بقراءة مستقرة دون تغيير.`
           });
         }
       });
     });
 
-    // فحص عدادات المياه
     rawParksWater.forEach((park: any) => {
       (park.meters || []).forEach((m: any) => {
         const consumption = Number(m.consumption || 0);
         const deviceName = getDeviceName(m);
         if (consumption > 20000) {
-          alerts.push({
+          important.push({
             id: `water-high-${m.id}`,
-            type: "danger",
-            title: "معدل مياه مرتفع",
-            message: `عداد المياه (${deviceName}) في ${park.name} يسجل استهلاكاً قدره ${consumption.toLocaleString()} m³.`
+            title: "استهلاك مياه مرتفع",
+            message: `عداد المياه (${deviceName}) في ${park.name} يسجل استهلاكاً كبيراً قدره ${consumption.toLocaleString()} m³.`
           });
         }
       });
     });
 
-    return alerts;
+    return { important, normal };
   }, [rawParksElec, rawParksWater]);
+
+  const totalAlertsCount = categorizedAlerts.important.length + categorizedAlerts.normal.length;
 
   const openPhotoModal = async (meter: any) => {
     setCurrentMeterForPhoto(meter);
@@ -1006,7 +1006,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
-      {/* الشريط العلوي للوحة التحكم مع زر التنبيهات في اليمين بشكل مرتب */}
+      {/* الشريط العلوي مع تصميم الجرس الكهربائي المتطور */}
       <div className="bg-slate-100 p-4 rounded-lg flex justify-between items-center border relative" dir="rtl">
         <div>
           <span className="text-xs text-slate-500 font-bold uppercase tracking-wider block">
@@ -1017,53 +1017,97 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           </h1>
         </div>
 
-        {/* زر جرس التنبيهات مع القائمة المنسدلة */}
+        {/* أيقونة جرس طاقة احترافية مع قائمة مقسمة لتسهيل القراءة */}
         <div className="relative">
           <button 
             onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-            className="relative p-2.5 bg-white border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center text-gray-700"
+            className="relative p-2.5 bg-gradient-to-tr from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-white rounded-2xl shadow-md transition-all flex items-center justify-center gap-1.5"
             title="التنبيهات والملاحظات"
           >
-            <span className="text-lg">🔔</span>
-            {importantAlerts.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center shadow">
-                {importantAlerts.length}
+            <span className="text-base font-black">⚡</span>
+            <span className="text-sm font-bold">التنبيهات</span>
+            {hasUnread && totalAlertsCount > 0 && (
+              <span className="absolute -top-1.5 -left-1.5 bg-red-600 text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow">
+                {totalAlertsCount}
               </span>
             )}
           </button>
 
-          {/* القائمة المنسدلة للتنبيهات */}
+          {/* القائمة المنسدلة للتنبيهات والملاحظات داخل نطاق الصفحة */}
           {isNotificationsOpen && (
-            <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden text-right" dir="rtl">
-              <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
-                <span className="font-bold text-xs text-gray-800 flex items-center gap-1.5">
-                  <span>📌</span> التنبيهات والملاحظات الهامة
+            <div className="absolute left-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden text-right" dir="rtl">
+              <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center">
+                <span className="font-bold text-xs flex items-center gap-1.5">
+                  <span className="text-amber-400">⚡</span> سجل التنبيهات
                 </span>
-                <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">
-                  {importantAlerts.length} تنبيه
-                </span>
+                {hasUnread && (
+                  <button 
+                    onClick={() => setHasUnread(false)}
+                    className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded-lg transition-all"
+                  >
+                    تحديد الكل كمقروء ✓
+                  </button>
+                )}
               </div>
 
-              <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
-                {importantAlerts.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-gray-400">
-                    لا توجد تنبيهات حالياً. جميع القراءات والعدادات منتظمة.
-                  </div>
-                ) : (
-                  importantAlerts.map((alert) => (
-                    <div key={alert.id} className="p-3.5 hover:bg-gray-50 transition-all flex items-start gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm ${alert.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>
-                        {alert.type === 'danger' ? '🚨' : '⚠️'}
-                      </div>
-                      <div className="space-y-0.5 flex-1">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-xs text-gray-900">{alert.title}</span>
-                          <span className="text-[9px] text-gray-400 font-mono">اليوم</span>
-                        </div>
-                        <p className="text-[11px] text-gray-600 leading-relaxed">{alert.message}</p>
-                      </div>
+              {/* أزرار التبويب لتصنيف التنبيهات (عاجل وهام / ملاحظات عامة) */}
+              <div className="flex border-b bg-gray-50 p-1 text-xs font-bold gap-1">
+                <button
+                  onClick={() => setNotificationTab("important")}
+                  className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+                    notificationTab === "important" 
+                      ? "bg-white text-red-600 shadow-sm border" 
+                      : "text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                  <span>🔴</span> عاجل وهام ({categorizedAlerts.important.length})
+                </button>
+                <button
+                  onClick={() => setNotificationTab("normal")}
+                  className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+                    notificationTab === "normal" 
+                      ? "bg-white text-blue-600 shadow-sm border" 
+                      : "text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                  <span>🔵</span> ملاحظات ({categorizedAlerts.normal.length})
+                </button>
+              </div>
+
+              {/* قائمة التنبيهات */}
+              <div className="max-h-72 overflow-y-auto divide-y divide-gray-100">
+                {notificationTab === "important" ? (
+                  categorizedAlerts.important.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-gray-400">
+                      لا توجد تنبيهات عاجلة حالياً.
                     </div>
-                  ))
+                  ) : (
+                    categorizedAlerts.important.map((alert) => (
+                      <div key={alert.id} className="p-3.5 hover:bg-red-50/50 transition-all flex items-start gap-3">
+                        <div className="w-2 h-2 rounded-full bg-red-500 mt-1.5 shrink-0"></div>
+                        <div className="space-y-0.5 flex-1">
+                          <span className="font-bold text-xs text-gray-900 block">{alert.title}</span>
+                          <p className="text-[11px] text-gray-600 leading-relaxed">{alert.message}</p>
+                        </div>
+                      </div>
+                    ))
+                  )
+                ) : (
+                  categorizedAlerts.normal.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-gray-400">
+                      لا توجد ملاحظات عامة.
+                    </div>
+                  ) : (
+                    categorizedAlerts.normal.map((alert) => (
+                      <div key={alert.id} className="p-3.5 hover:bg-gray-50 transition-all flex items-start gap-3">
+                        <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0"></div>
+                        <div className="space-y-0.5 flex-1">
+                          <span className="font-bold text-xs text-gray-900 block">{alert.title}</span>
+                          <p className="text-[11px] text-gray-600 leading-relaxed">{alert.message}</p>
+                        </div>
+                      </div>
+                    ))
+                  )
                 )}
               </div>
 
