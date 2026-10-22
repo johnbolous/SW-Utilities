@@ -1025,7 +1025,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             title="التنبيهات والملاحظات"
           >
             <span className="text-base font-black">⚡</span>
-            <span className="text-sm font-bold">التنبيهات</span>
+            <span className="text-sm font-bold">  </span>
             {hasUnread && totalAlertsCount > 0 && (
               <span className="absolute -top-1.5 -left-1.5 bg-red-600 text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow">
                 {totalAlertsCount}
