@@ -162,6 +162,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return rawParksElec && rawParksElec.length > 0 ? rawParksElec.map((p: any) => p.id) : [];
   });
 
+  // State للتحكم في ظهور قائمة إشعارات السوشيال ميديا
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
   // Photo modal states
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [currentMeterForPhoto, setCurrentMeterForPhoto] = useState<any>(null);
@@ -329,30 +332,29 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return item?.code || item?.meter_code || item?.id || "";
   };
 
-  // محرك الذكاء الاصطناعي لتحليل القراءات وإنشاء الإشعارات التنبيهية الذكية
-  const aiSmartInsights = useMemo(() => {
-    const alerts: { id: string; type: "warning" | "danger" | "info"; title: string; message: string }[] = [];
+  // محرك الذكاء الاصطناعي لاستخراج التنبيهات الهامة فقط (Important Anomaly Alerts)
+  const importantAlerts = useMemo(() => {
+    const alerts: { id: string; type: "warning" | "danger"; title: string; message: string }[] = [];
 
     // فحص عدادات الكهرباء
     rawParksElec.forEach((park: any) => {
       (park.meters || []).forEach((m: any) => {
         const consumption = Number(m.consumption || 0);
         const deviceName = getDeviceName(m);
-        const deviceCode = getDeviceCode(m);
 
         if (consumption > 50000) {
           alerts.push({
             id: `elec-high-${m.id}`,
             type: "danger",
-            title: "استهلاك ضخم غير طبيعي (Electrical Spike)",
-            message: `العداد (${deviceName} - ${codeOrName(deviceCode)}) في ${park.name} سجل استهلاكاً مرتفعاً للغاية بلغ ${consumption.toLocaleString()} kWh اليوم.`
+            title: "استهلاك ضخم غير طبيعي",
+            message: `العداد (${deviceName}) في ${park.name} سجل استهلاكاً مرتفعاً للغاية بلغ ${consumption.toLocaleString()} kWh.`
           });
         } else if (consumption === 0) {
           alerts.push({
             id: `elec-zero-${m.id}`,
             type: "warning",
-            title: "عداد متوقف / استهلاك صفري",
-            message: `العداد (${deviceName}) في ${park.name} يسجل استهلاكاً بقيمة صفر (القراءة الحالية مساوية للسابقة).`
+            title: "عداد متوقف / استهلاك صفرى",
+            message: `العداد (${deviceName}) في ${park.name} لا يسجل أي استهلاك حالياً (القراءة السابقة مطابقة للحالية).`
           });
         }
       });
@@ -374,21 +376,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       });
     });
 
-    if (alerts.length === 0) {
-      alerts.push({
-        id: "ai-stable",
-        type: "info",
-        title: "حالة النظام مستقرة",
-        message: "لم يتم اكتشاف أي قراءات شاذة أو استهلاكات غير منطقية في جميع العدادات والمناطق الحالية."
-      });
-    }
-
     return alerts;
   }, [rawParksElec, rawParksWater]);
-
-  function codeOrName(code: string) {
-    return code || "بدون كود";
-  }
 
   const openPhotoModal = async (meter: any) => {
     setCurrentMeterForPhoto(meter);
@@ -1017,7 +1006,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
-      <div className="bg-slate-100 p-4 rounded-lg flex justify-between items-center border" dir="ltr">
+      <div className="bg-slate-100 p-4 rounded-lg flex justify-between items-center border relative" dir="ltr">
         <div className="text-left">
           <span className="text-xs text-slate-500 font-bold uppercase tracking-wider block">
             Technology Park
@@ -1026,42 +1015,62 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             {parkNames.length > 0 ? parkNames.join(", ") : "No Parks Assigned"}
           </h1>
         </div>
-        <span className="text-xs text-slate-500 bg-white px-3 py-1 rounded border shadow-sm font-medium">
-          Authorized Scope Only
-        </span>
-      </div>
 
-      {/* قسم الإشعارات والتحليلات الذكية (AI Smart Notifications & Assistant) */}
-      <div className="bg-gradient-to-l from-slate-900 to-[#0c1427] text-white p-5 rounded-3xl shadow-xl border border-slate-800 space-y-3">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            <span className="bg-blue-600 p-1.5 rounded-xl text-sm">🤖</span>
-            <h3 className="font-bold text-sm text-slate-100">مساعد الذكاء الاصطناعي والتنبيهات الذكية (AI Assistant & Anomaly Detection)</h3>
-          </div>
-          <span className="text-[10px] bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full font-bold border border-blue-500/30">
-            تحليل فوري نشط
-          </span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-40 overflow-y-auto pr-1">
-          {aiSmartInsights.map((alert) => {
-            const bgClass = alert.type === "danger" 
-              ? "bg-red-500/10 border-red-500/30 text-red-200" 
-              : alert.type === "warning" 
-              ? "bg-amber-500/10 border-amber-500/30 text-amber-200" 
-              : "bg-blue-500/10 border-blue-500/30 text-blue-200";
-            
-            const icon = alert.type === "danger" ? "🚨" : alert.type === "warning" ? "⚠️" : "💡";
+        {/* تصميم جرس الإشعارات على غرار السوشيال ميديا في الأعلى */}
+        <div className="relative">
+          <button 
+            onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+            className="relative p-2.5 bg-white border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center text-gray-700"
+            title="التنبيهات الهامة"
+          >
+            <span className="text-lg">🔔</span>
+            {importantAlerts.length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center shadow">
+                {importantAlerts.length}
+              </span>
+            )}
+          </button>
 
-            return (
-              <div key={alert.id} className={`p-3 rounded-2xl border flex items-start gap-2.5 text-xs ${bgClass}`}>
-                <span className="text-base">{icon}</span>
-                <div className="space-y-0.5">
-                  <span className="font-bold block text-white">{alert.title}</span>
-                  <p className="text-[11px] opacity-90 leading-relaxed">{alert.message}</p>
-                </div>
+          {/* القائمة المنسدلة للإشعارات (Social Media Dropdown Style) */}
+          {isNotificationsOpen && (
+            <div className="absolute left-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden text-right" dir="rtl">
+              <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
+                <span className="font-bold text-xs text-gray-800 flex items-center gap-1.5">
+                  <span>✨</span> التنبيهات والملاحظات الهامة
+                </span>
+                <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">
+                  {importantAlerts.length} تنبيه
+                </span>
               </div>
-            );
-          })}
+
+              <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
+                {importantAlerts.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-gray-400">
+                    لا توجد تنبيهات شاذة أو أخطاء حالياً. كل الأمور مستقرة! 🎉
+                  </div>
+                ) : (
+                  importantAlerts.map((alert) => (
+                    <div key={alert.id} className="p-3.5 hover:bg-gray-50 transition-all flex items-start gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm ${alert.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>
+                        {alert.type === 'danger' ? '🚨' : '⚠️'}
+                      </div>
+                      <div className="space-y-0.5 flex-1">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-xs text-gray-900">{alert.title}</span>
+                          <span className="text-[9px] text-gray-400 font-mono">الآن</span>
+                        </div>
+                        <p className="text-[11px] text-gray-600 leading-relaxed">{alert.message}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="bg-gray-50 px-4 py-2 border-t text-center">
+                <span className="text-[10px] text-gray-400 font-medium">مراقبة ذكية فورية لحالة العدادات</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1710,7 +1719,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
               </div>
               <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
                 {park.inverters.map((i: any) => (
-                  <div key={i.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
+                  <div key={i.id} className="flex-1 flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
                     <span className="font-medium text-gray-700">{getDeviceName(i)} ({getDeviceCode(i)})</span>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-emerald-600">{Math.round(Number(i.yield || 0)).toLocaleString()} kWh</span>
