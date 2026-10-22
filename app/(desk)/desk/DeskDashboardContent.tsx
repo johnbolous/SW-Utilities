@@ -162,7 +162,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return rawParksElec && rawParksElec.length > 0 ? rawParksElec.map((p: any) => p.id) : [];
   });
 
-  // State للتحكم في ظهور قائمة إشعارات السوشيال ميديا
+  // State للتحكم في ظهور قائمة الإشعارات
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   // Photo modal states
@@ -332,7 +332,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return item?.code || item?.meter_code || item?.id || "";
   };
 
-  // محرك الذكاء الاصطناعي لاستخراج التنبيهات الهامة فقط (Important Anomaly Alerts)
+  // استخراج التنبيهات والملاحظات الهامة
   const importantAlerts = useMemo(() => {
     const alerts: { id: string; type: "warning" | "danger"; title: string; message: string }[] = [];
 
@@ -346,15 +346,15 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           alerts.push({
             id: `elec-high-${m.id}`,
             type: "danger",
-            title: "استهلاك ضخم غير طبيعي",
-            message: `العداد (${deviceName}) في ${park.name} سجل استهلاكاً مرتفعاً للغاية بلغ ${consumption.toLocaleString()} kWh.`
+            title: "استهلاك مرتفع غير معتاد",
+            message: `العداد (${deviceName}) في ${park.name} يسجل استهلاكاً كبيراً بقيمة ${consumption.toLocaleString()} kWh.`
           });
         } else if (consumption === 0) {
           alerts.push({
             id: `elec-zero-${m.id}`,
             type: "warning",
-            title: "عداد متوقف / استهلاك صفرى",
-            message: `العداد (${deviceName}) في ${park.name} لا يسجل أي استهلاك حالياً (القراءة السابقة مطابقة للحالية).`
+            title: "عداد متوقف / استهلاك صفري",
+            message: `العداد (${deviceName}) في ${park.name} لا يوجد له استهلاك جديد (القراءة الحالية مسابقة للسابقة).`
           });
         }
       });
@@ -369,8 +369,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           alerts.push({
             id: `water-high-${m.id}`,
             type: "danger",
-            title: "استهلاك مياه مرتفع جداً",
-            message: `عداد المياه (${deviceName}) في ${park.name} يسجل معدل استهلاك قدره ${consumption.toLocaleString()} m³.`
+            title: "معدل مياه مرتفع",
+            message: `عداد المياه (${deviceName}) في ${park.name} يسجل استهلاكاً قدره ${consumption.toLocaleString()} m³.`
           });
         }
       });
@@ -1006,8 +1006,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
-      <div className="bg-slate-100 p-4 rounded-lg flex justify-between items-center border relative" dir="ltr">
-        <div className="text-left">
+      {/* الشريط العلوي للوحة التحكم مع زر التنبيهات في اليمين بشكل مرتب */}
+      <div className="bg-slate-100 p-4 rounded-lg flex justify-between items-center border relative" dir="rtl">
+        <div>
           <span className="text-xs text-slate-500 font-bold uppercase tracking-wider block">
             Technology Park
           </span>
@@ -1016,12 +1017,12 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           </h1>
         </div>
 
-        {/* تصميم جرس الإشعارات على غرار السوشيال ميديا في الأعلى */}
+        {/* زر جرس التنبيهات مع القائمة المنسدلة */}
         <div className="relative">
           <button 
             onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
             className="relative p-2.5 bg-white border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center text-gray-700"
-            title="التنبيهات الهامة"
+            title="التنبيهات والملاحظات"
           >
             <span className="text-lg">🔔</span>
             {importantAlerts.length > 0 && (
@@ -1031,12 +1032,12 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             )}
           </button>
 
-          {/* القائمة المنسدلة للإشعارات (Social Media Dropdown Style) */}
+          {/* القائمة المنسدلة للتنبيهات */}
           {isNotificationsOpen && (
-            <div className="absolute left-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden text-right" dir="rtl">
+            <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden text-right" dir="rtl">
               <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
                 <span className="font-bold text-xs text-gray-800 flex items-center gap-1.5">
-                  <span>✨</span> التنبيهات والملاحظات الهامة
+                  <span>📌</span> التنبيهات والملاحظات الهامة
                 </span>
                 <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">
                   {importantAlerts.length} تنبيه
@@ -1046,7 +1047,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
               <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
                 {importantAlerts.length === 0 ? (
                   <div className="p-6 text-center text-xs text-gray-400">
-                    لا توجد تنبيهات شاذة أو أخطاء حالياً. كل الأمور مستقرة! 🎉
+                    لا توجد تنبيهات حالياً. جميع القراءات والعدادات منتظمة.
                   </div>
                 ) : (
                   importantAlerts.map((alert) => (
@@ -1057,7 +1058,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                       <div className="space-y-0.5 flex-1">
                         <div className="flex justify-between items-center">
                           <span className="font-bold text-xs text-gray-900">{alert.title}</span>
-                          <span className="text-[9px] text-gray-400 font-mono">الآن</span>
+                          <span className="text-[9px] text-gray-400 font-mono">اليوم</span>
                         </div>
                         <p className="text-[11px] text-gray-600 leading-relaxed">{alert.message}</p>
                       </div>
@@ -1067,7 +1068,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
               </div>
 
               <div className="bg-gray-50 px-4 py-2 border-t text-center">
-                <span className="text-[10px] text-gray-400 font-medium">مراقبة ذكية فورية لحالة العدادات</span>
+                <span className="text-[10px] text-gray-400 font-medium">متابعة فورية ومباشرة لحالة العدادات</span>
               </div>
             </div>
           )}
