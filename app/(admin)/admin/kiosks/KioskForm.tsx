@@ -12,7 +12,7 @@ interface KioskRecord {
 }
 
 interface Park {
-  id: string;
+  id: name;
   name: string;
 }
 
@@ -37,6 +37,7 @@ export function KioskForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // جلب قائمة المناطق (Parks) من قاعدة البيانات لعرضها في القائمة المنسدلة
   useEffect(() => {
     async function fetchParks() {
       try {
@@ -59,6 +60,7 @@ export function KioskForm({
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
+    e._preventDefault?.();
     e.preventDefault();
     if (!parkId) {
       setError("يرجى اختيار المنطقة التابع لها الكشك.");
