@@ -32,28 +32,32 @@ export function KiosksPageContent() {
         { key: "sort_order", label: "Order" },
         { key: "is_active", label: "Status", render: (r) => <Badge tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Disabled"}</Badge> },
         {
-          key: "actions_delete",
-          label: "Delete",
+          key: "actions",
+          label: "Actions",
           render: (r) => (
-            <button
-              onClick={async () => {
-                if (window.confirm(`هل أنت متأكد من حذف الكشك "${r.name}"؟`)) {
-                  try {
-                    const res = await fetch(`/api/admin/kiosks/${r.id}`, { method: "DELETE" });
-                    if (res.ok) {
-                      window.location.reload();
-                    } else {
-                      alert("فشل مسح الكشك.");
+            <div className="flex items-center gap-1.5">
+              {/* زر الحذف داخل عمود الـ Actions */}
+              <button
+                onClick={async () => {
+                  if (window.confirm(`هل أنت متأكد من حذف الكشك "${r.name}"؟`)) {
+                    try {
+                      const res = await fetch(`/api/admin/kiosks/${r.id}`, { method: "DELETE" });
+                      if (res.ok) {
+                        window.location.reload();
+                      } else {
+                        alert("فشل مسح الكشك.");
+                      }
+                    } catch (err) {
+                      alert("حدث خطأ أثناء الاتصال.");
                     }
-                  } catch (err) {
-                    alert("حدث خطأ أثناء الاتصال.");
                   }
-                }
-              }}
-              className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all"
-            >
-              🗑️ حذف
-            </button>
+                }}
+                className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all"
+                title="حذف الكشك"
+              >
+                🗑️
+              </button>
+            </div>
           ),
         },
       ]}
