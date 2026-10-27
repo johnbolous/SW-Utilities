@@ -49,6 +49,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [previousValue, setPreviousValue] = useState(0);
   const [alreadyRead, setAlreadyRead] = useState(false);
   const [meterCode, setMeterCode] = useState("");
+  const [displayReadingDate, setDisplayReadingDate] = useState(todayIso()); // تاريخ القراءة المعروض
   const [currentValue, setCurrentValue] = useState("");
   const [notes, setNotes] = useState("");
   const [photoId, setPhotoId] = useState<string | null>(null);
@@ -61,7 +62,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const today = new Date();
   const isFirst = today.getDate() === 1;
   const photoRequired = isFirst && isPhotoRequiredToday(today);
-  const readingDate = todayIso();
+  const systemTodayIso = todayIso();
 
   useEffect(() => {
     fetchStructure()
@@ -78,15 +79,13 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
 
   const parksList = structure?.parks ?? [];
 
-  // دالة مساعدة مطورة للتحقق من تطابق المنطقة مع دعم الحقول المختلفة
   const matchesPark = (item: any, parkId: string) => {
     if (!parkId) return true;
     const itemParkId = String(item.park_id || item.parkId || item.technology_park_id || "");
-    if (!itemParkId) return true; // إذا لم يكن محدداً، اعرضه لضمان عدم اختفاء البيانات
+    if (!itemParkId) return true;
     return itemParkId === String(parkId);
   };
 
-  // فلترة المباني مع ضمان عدم الاختفاء إذا لم تطابق بشكل صارم
   const lowBuildings = useMemo(() => {
     const list = structure?.buildings ?? [];
     if (!selectedParkId) return list;
@@ -174,15 +173,21 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
 
   useEffect(() => {
     setPreviousValue(0); setAlreadyRead(false); setMeterCode(""); setCurrentValue(""); setPhotoId(null);
+    setDisplayReadingDate(systemTodayIso);
+
     if (!entityId || category === "SOLAR" || category === "DISTRIBUTOR") return;
     fetchLatestReading(category as ReadingEntityType, entityId)
-      .then((info) => {
+      .then((info: any) => {
         setPreviousValue(info.previousValue);
         setAlreadyRead(info.alreadyReadThisPeriod);
         setMeterCode(info.meterCode);
+        // تحديث التاريخ ليطابق تاريخ آخر قراءة مسجلة إن وجد في الاستجابة، وإلا يتم استخدام تاريخ اليوم
+        if (info.readingDate || info.lastReadingDate || info.date) {
+          setDisplayReadingDate(info.readingDate || info.lastReadingDate || info.date);
+        }
       })
       .catch((err: any) => setError(err?.message || "Fetch latest reading failed"));
-  }, [entityId, category]);
+  }, [entityId, category, systemTodayIso]);
 
   useEffect(() => {
     if (category === "SOLAR" && inverterId) {
@@ -255,7 +260,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     const result = await submitReading({
       entityType: category as ReadingEntityType,
       entityId,
-      readingDate,
+      readingDate: displayReadingDate,
       currentValue: numericCurrent,
       notes,
       isLowerConfirmed,
@@ -472,7 +477,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
           <>
             <div className="mb-3 flex justify-between items-center text-xs text-brand-gray">
               <span>{t("previousValue")}: <strong className="font-mono text-brand-navy">{previousValue}</strong></span>
-              <span>{t("readingDate")}: <strong className="font-mono text-brand-navy">{readingDate}</strong></span>
+              <span>{t("readingDate")}: <strong className="font-mono text-brand-navy">{displayReadingDate}</strong></span>
             </div>
 
             <FieldLabel>{t("currentValue")}</FieldLabel>
@@ -506,7 +511,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
                 userId={userId}
                 entityType={category as ReadingEntityType}
                 entityId={entityId}
-                readingDate={readingDate}
+                readingDate={displayReadingDate}
                 onPhotoUploaded={(id) => setPhotoId(id)}
                 required={photoRequired}
               />
