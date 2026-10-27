@@ -31,10 +31,10 @@ export async function GET(request: NextRequest) {
     : { data: [] };
   const nameById = new Map((buildingRows ?? []).map((b) => [b.id, b.name_en]));
 
-  // جلب أسماء المناطق (Parks)
+  // جلب أسماء المناطق من جدول technology_parks الصحيح
   const parkIds = Array.from(new Set(kiosks.map((k) => (k as any).park_id).filter((id): id is string => !!id)));
   const { data: parkRows } = parkIds.length
-    ? await supabase.from("parks").select("id, name").in("id", parkIds)
+    ? await supabase.from("technology_parks").select("id, name").in("id", parkIds)
     : { data: [] };
   const parkNameById = new Map((parkRows ?? []).map((p) => [p.id, p.name]));
 
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   const meterCode = (body.meterCode ?? "").trim().toUpperCase();
   const sortOrder = Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0;
   const buildingId = typeof body.buildingId === "string" && body.buildingId ? body.buildingId : null;
-  const parkId = typeof body.parkId === "string" && body.parkId ? body.parkId : null; // استقبال الـ parkId
+  const parkId = typeof body.parkId === "string" && body.parkId ? body.parkId : null;
 
   if (!name) return NextResponse.json({ error: "MISSING_NAME" }, { status: 400 });
   if (!meterCode) return NextResponse.json({ error: "MISSING_METER_CODE" }, { status: 400 });
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     meter_code: meterCode,
     sort_order: sortOrder,
     building_id: buildingId,
-    park_id: parkId, // حفظ الـ park_id في قاعدة البيانات
+    park_id: parkId,
   };
   const { data, error } = await supabase.from("kiosks").insert(insertRow).select().single();
 
