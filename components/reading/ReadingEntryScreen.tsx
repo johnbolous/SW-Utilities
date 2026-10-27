@@ -76,7 +76,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
 
   const parksList = structure?.parks ?? [];
 
-  // تصحيح فلترة المباني لتظهر بشكل صحيح بناءً على المنطقة المحددة
   const lowBuildings = useMemo(() => {
     let list = structure?.buildings ?? [];
     if (selectedParkId) {
@@ -430,3 +429,108 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
               ))}
             </Select>
             <div className="grid grid-cols-3 gap-2 mb-3">
+              <div>
+                <FieldLabel>Phase A (MVA)</FieldLabel>
+                <Input type="number" step="0.001" value={phaseA} onChange={(e) => setPhaseA(e.target.value)} placeholder="0.000" />
+              </div>
+              <div>
+                <FieldLabel>Phase B (MVA)</FieldLabel>
+                <Input type="number" step="0.001" value={phaseB} onChange={(e) => setPhaseB(e.target.value)} placeholder="0.000" />
+              </div>
+              <div>
+                <FieldLabel>Phase C (MVA)</FieldLabel>
+                <Input type="number" step="0.001" value={phaseC} onChange={(e) => setPhaseC(e.target.value)} placeholder="0.000" />
+              </div>
+            </div>
+          </>
+        )}
+
+        {meterCode && (
+          <div className="mb-3 text-xs text-brand-gray">
+            {t("meterCode")}: <span className="font-mono font-semibold text-brand-navy">{meterCode}</span>
+          </div>
+        )}
+
+        {alreadyRead && category !== "DISTRIBUTOR" && (
+          <div className="mb-3 p-3 bg-warning/10 text-warning text-xs rounded-lg font-semibold">
+            {t("alreadyReadThisPeriod")}
+          </div>
+        )}
+
+        {category !== "DISTRIBUTOR" && (
+          <>
+            <div className="mb-3 flex justify-between items-center text-xs text-brand-gray">
+              <span>{t("previousValue")}: <strong className="font-mono text-brand-navy">{previousValue}</strong></span>
+              <span>{t("readingDate")}: <strong className="font-mono text-brand-navy">{readingDate}</strong></span>
+            </div>
+
+            <FieldLabel>{t("currentValue")}</FieldLabel>
+            <Input
+              type="number"
+              step="any"
+              value={currentValue}
+              onChange={(e) => setCurrentValue(e.target.value)}
+              disabled={!canEnterValue || alreadyRead}
+              placeholder="0"
+              className="mb-3 font-mono text-lg"
+            />
+
+            {isLower && (
+              <div className="mb-3 p-3 bg-danger/10 text-danger text-xs rounded-lg">
+                ⚠️ القراءة الحالية أقل من القراءة السابقة! سيطلب منك توضيح السبب عند الحفظ.
+              </div>
+            )}
+
+            <FieldLabel>{t("notes")} ({t("optional")})</FieldLabel>
+            <Input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={!canEnterValue || alreadyRead}
+              placeholder={t("notesPlaceholder")}
+              className="mb-4"
+            />
+
+            {isFirst && (
+              <PhotoCapture
+                userId={userId}
+                entityType={category as ReadingEntityType}
+                entityId={entityId}
+                readingDate={readingDate}
+                onPhotoUploaded={(id) => setPhotoId(id)}
+                required={photoRequired}
+              />
+            )}
+          </>
+        )}
+
+        {error && <div className="mt-3 p-3 bg-danger/10 text-danger text-xs rounded-lg">{error}</div>}
+        {justSaved && <div className="mt-3 p-3 bg-success/10 text-success text-xs rounded-lg font-semibold">✓ تم الحفظ بنجاح</div>}
+
+        <Button
+          onClick={handleSave}
+          disabled={!canSave || submitting}
+          className="w-full mt-4"
+        >
+          {submitting ? "جاري الحفظ..." : t("saveReading")}
+        </Button>
+      </Card>
+
+      <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+        <div className="p-4 space-y-3" dir="rtl">
+          <h3 className="font-display font-bold text-base text-brand-navy">تأكيد القراءة المنخفضة</h3>
+          <p className="text-xs text-brand-gray">القراءة الحالية أقل من القراءة السابقة. يرجى إدخال سبب مقنع للمتابعة:</p>
+          <Input id="lower-reason-input" placeholder="اكتب السبب هنا..." className="mb-3" />
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>إلغاء</Button>
+            <Button onClick={() => {
+              const inputEl = document.getElementById("lower-reason-input") as HTMLInputElement;
+              const reason = inputEl?.value || "";
+              setConfirmOpen(false);
+              doSubmit(true, reason);
+            }}>تأكيد وحفظ</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
