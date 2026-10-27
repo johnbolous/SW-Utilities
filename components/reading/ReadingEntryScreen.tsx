@@ -59,12 +59,17 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [justSaved, setJustSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const today = new Date();
-  const isFirst = today.getDate() === 1;
-  const photoRequired = isFirst && isPhotoRequiredToday(today);
+  // جعل متغيرات التاريخ آمنة لمنع مشاكل الـ Hydration
+  const [isFirst, setIsFirst] = useState(false);
+  const [photoRequired, setPhotoRequired] = useState(false);
   const systemTodayIso = todayIso();
 
   useEffect(() => {
+    const today = new Date();
+    const firstDay = today.getDate() === 1;
+    setIsFirst(firstDay);
+    setPhotoRequired(firstDay && isPhotoRequiredToday(today));
+
     fetchStructure()
       .then((data) => {
         setStructure(data);
@@ -124,7 +129,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     return list;
   }, [structure, selectedParkId]);
 
-  // تحديث عرض الأكشاك لتظهر مباشرة دون التقيد بشرط أول الشهر فقط
   const visibleKiosks = useMemo(() => {
     let list = structure?.kiosks ?? [];
     if (selectedParkId) {
