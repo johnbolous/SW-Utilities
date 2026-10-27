@@ -37,17 +37,16 @@ export function KioskForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // جلب قائمة المناطق (Parks) عند فتح الفورم
   useEffect(() => {
     async function fetchParks() {
       try {
-        const res = await fetch("/api/admin/parks"); // تأكد من مسار الـ API الخاص بالمناطق لديك
+        const res = await fetch("/api/admin/parks");
         if (res.ok) {
           const data = await res.json();
-          setParks(data.parks || data || []);
-          // إذا لم يكن هناك منطقة محددة وكانت القائمة تحتوي على عناصر، حدد أول منطقة افتراضياً عند الإضافة الجديدة
-          if (!parkId && (data.parks || data)?.length > 0) {
-            setParkId((data.parks || data)[0].id);
+          const parksList = data.parks || data || [];
+          setParks(parksList);
+          if (!parkId && parksList.length > 0) {
+            setParkId(parksList[0].id);
           }
         }
       } catch (err) {
@@ -86,7 +85,7 @@ export function KioskForm({
       }
       onDone();
     } catch (e: any) {
-      setError(e.message === "METER_CODE_TAKEN" ? "كود العداد مستخدم من قبل." : "حدث خطأ ما.");
+      setError(e.message === "METER_CODE_TAKEN" ? "That meter code is already used." : "Something went wrong.");
     } finally {
       setLoading(false);
     }
@@ -94,7 +93,7 @@ export function KioskForm({
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className="font-display font-bold text-lg mb-4">{isEdit ? "تعديل الكشك" : "كشك جديد"}</div>
+      <div className="font-display font-bold text-lg mb-4">{isEdit ? "Edit kiosk" : "New kiosk"}</div>
 
       <FieldLabel>المنطقة (Park)</FieldLabel>
       <select 
@@ -112,29 +111,29 @@ export function KioskForm({
         ))}
       </select>
 
-      <FieldLabel>اسم الكشك</FieldLabel>
+      <FieldLabel>Name</FieldLabel>
       <Input value={name} onChange={(e) => setName(e.target.value)} className="mb-3" required />
 
       {!isEdit && (
         <>
-          <FieldLabel>كود العداد (فريد)</FieldLabel>
+          <FieldLabel>Meter code (unique)</FieldLabel>
           <Input value={meterCode} onChange={(e) => setMeterCode(e.target.value)} className="mb-3" required />
         </>
       )}
 
-      <FieldLabel>ترتيب العرض</FieldLabel>
+      <FieldLabel>Sort order</FieldLabel>
       <Input type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} className="mb-3" />
 
-      <div className="text-xs text-brand-gray mb-3">قراءات الكشك شهرية دائماً، يتم إدخالها في اليوم الأول — ولا يمكن تغيير ذلك لكل كشك على حدة.</div>
+      <div className="text-xs text-brand-gray mb-3">Kiosk readings are always monthly, entered on day 1 — this can't be changed per kiosk.</div>
 
       {error && <div className="text-sm text-danger mb-3">{error}</div>}
 
       <div className="flex gap-2 justify-end">
         <Button type="button" variant="secondary" onClick={onCancel} disabled={loading}>
-          إلغاء
+          Cancel
         </Button>
         <Button type="submit" disabled={loading || loadingParks}>
-          {loading ? "جاري الحفظ..." : isEdit ? "حفظ التغييرات" : "إضافة الكشك"}
+          {loading ? "…" : isEdit ? "Save changes" : "Create kiosk"}
         </Button>
       </div>
     </form>
