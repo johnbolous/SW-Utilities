@@ -68,7 +68,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
         setStructure(data);
         const parksList = data?.parks ?? [];
         if (parksList.length === 1) {
-          setSelectedParkId(parksList[0].id);
+          setSelectedParkId(parksList.id);
         }
       })
       .catch((err: any) => setLoadError(err?.message || "Load structure failed"));
@@ -76,6 +76,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
 
   const parksList = structure?.parks ?? [];
 
+  // فلترة المباني بناءً على المنطقة المحددة
   const lowBuildings = useMemo(() => {
     let list = structure?.buildings ?? [];
     if (selectedParkId) {
@@ -100,7 +101,8 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const visibleMediumMeters = useMemo(() => {
     let list = (structure?.meters ?? []).filter((m) => m.category === "MEDIUM" && (m.reading_frequency === "DAILY" || isFirst));
     if (selectedParkId) {
-      list = list.filter((m: any) => String(m.park_id || m.parkId) === String(selectedParkId) || (m.building_id && lowBuildings.some(b => b.id === m.building_id)));
+      const validBuildingIds = new Set(lowBuildings.map(b => b.id));
+      list = list.filter((m: any) => String(m.park_id || m.parkId) === String(selectedParkId) || (m.building_id && validBuildingIds.has(m.building_id)));
     }
     return list;
   }, [structure, isFirst, selectedParkId, lowBuildings]);
@@ -108,10 +110,11 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const visibleWaterMeters = useMemo(() => {
     let list = (structure?.waterMeters ?? []).filter((w) => w.reading_frequency === "DAILY" || isFirst);
     if (selectedParkId) {
-      list = list.filter((w: any) => String(w.park_id || w.parkId) === String(selectedParkId));
+      const validBuildingIds = new Set(lowBuildings.map(b => b.id));
+      list = list.filter((w: any) => String(w.park_id || w.parkId) === String(selectedParkId) || (w.building_id && validBuildingIds.has(w.building_id)));
     }
     return list;
-  }, [structure, isFirst, selectedParkId]);
+  }, [structure, isFirst, selectedParkId, lowBuildings]);
 
   const visibleKiosks = useMemo(() => {
     let list = isFirst ? structure?.kiosks ?? [] : [];
@@ -293,18 +296,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
       )}
 
       <Card>
-        {parksList.length > 1 && (
-          <div className="mb-4 pb-3 border-b border-border">
-            <FieldLabel>فلترة حسب المنطقة (Technology Park)</FieldLabel>
-            <Select value={selectedParkId} onChange={(e) => setSelectedParkId(e.target.value)}>
-              <option value="">جميع المناطق المتاحة</option>
-              {parksList.map((p: any) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </Select>
-          </div>
-        )}
-
         <FieldLabel>{t("readingType")}</FieldLabel>
         <div className="flex gap-2 flex-wrap mb-4">
           {categories.map((c) => {
@@ -322,6 +313,19 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             );
           })}
         </div>
+
+        {/* نقل فلترة المنطقة لتصبح تحت خانة Reading Type مباشرة */}
+        {parksList.length > 1 && (
+          <div className="mb-4 pb-3 border-b border-border">
+            <FieldLabel>فلترة حسب المنطقة (Technology Park)</FieldLabel>
+            <Select value={selectedParkId} onChange={(e) => setSelectedParkId(e.target.value)}>
+              <option value="">جميع المناطق المتاحة</option>
+              {parksList.map((p: any) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+          </div>
+        )}
 
         {category === "LOW" && (
           <>
