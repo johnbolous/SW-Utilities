@@ -29,6 +29,9 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [category, setCategory] = useState<ReadingEntityType | "DISTRIBUTOR">("LOW");
 
+  // إضافة حالة المنطقة المحددة للفلترة العامة
+  const [selectedParkId, setSelectedParkId] = useState("");
+
   const [buildingId, setBuildingId] = useState("");
   const [floorId, setFloorId] = useState("");
   const [lowMeterId, setLowMeterId] = useState("");
@@ -52,7 +55,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [photoId, setPhotoId] = useState<string | null>(null);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [lowerReason, setLowerReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,23 +65,29 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
 
   useEffect(() => {
     fetchStructure()
-      .then(setStructure)
+      .then((data) => {
+        setStructure(data);
+        // إذا كانت هناك منطقة واحدة فقط متاحة، قم بتحديدها تلقائياً
+        const parksList = data?.parks ?? [];
+        if (parksList.length === 1) {
+          setSelectedParkId(parksList[0].id);
+        }
+      })
       .catch((err: any) => setLoadError(err?.message || "Load structure failed"));
   }, []); 
 
   const isFirst = today.getDate() === 1;
+  const parksList = structure?.parks ?? [];
 
-  const visibleMediumMeters = useMemo(
-    () => (structure?.meters ?? []).filter((m) => m.category === "MEDIUM" && (m.reading_frequency === "DAILY" || isFirst)),
-    [structure, isFirst]
-  );
-  const visibleWaterMeters = useMemo(
-    () => (structure?.waterMeters ?? []).filter((w) => w.reading_frequency === "DAILY" || isFirst),
-    [structure, isFirst]
-  );
-  const visibleKiosks = useMemo(() => (isFirst ? structure?.kiosks ?? [] : []), [structure, isFirst]);
+  // فلترة العناصر بناءً على المنطقة المحددة (selectedParkId)
+  const lowBuildings = useMemo(() => {
+    let list = (structure?.buildings ?? []).filter((b) => b.has_meters);
+    if (selectedParkId) {
+      list = list.filter((b: any) => b.park_id === selectedParkId);
+    }
+    return list;
+  }, [structure, selectedParkId]);
 
-  const lowBuildings = useMemo(() => (structure?.buildings ?? []).filter((b) => b.has_meters), [structure]);
   const floorsForBuilding = useMemo(
     () => (structure?.floors ?? []).filter((f) => f.building_id === buildingId).sort((a, b) => a.sort_order - b.sort_order),
     [structure, buildingId]
@@ -93,14 +101,50 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     [structure, buildingId, floorId]
   );
 
-  const solarBuildingIds = useMemo(
-    () => [...new Set((structure?.solarInverters ?? []).map((i) => i.building_id))],
-    [structure]
-  );
+  const visibleMediumMeters = useMemo(() => {
+    let list = (structure?.meters ?? []).filter((m) => m.category === "MEDIUM" && (m.reading_frequency === "DAILY" || isFirst));
+    if (selectedParkId) {
+      list = list.filter((m: any) => m.park_id === selectedParkId || (m.building_id && lowBuildings.some(b => b.id === m.building_id)));
+    }
+    return list;
+  }, [structure, isFirst, selectedParkId, lowBuildings]);
+
+  const visibleWaterMeters = useMemo(() => {
+    let list = (structure?.waterMeters ?? []).filter((w) => w.reading_frequency === "DAILY" || isFirst);
+    if (selectedParkId) {
+      list = list.filter((w: any) => w.park_id === selectedParkId);
+    }
+    return list;
+  }, [structure, isFirst, selectedParkId]);
+
+  const visibleKiosks = useMemo(() => {
+    let list = isFirst ? structure?.kiosks ?? [] : [];
+    if (selectedParkId) {
+      list = list.filter((k: any) => k.park_id === selectedParkId);
+    }
+    return list;
+  }, [structure, isFirst, selectedParkId]);
+
+  const solarBuildingIds = useMemo(() => {
+    let inverters = structure?.solarInverters ?? [];
+    if (selectedParkId) {
+      const validBuildingIds = new Set(lowBuildings.map(b => b.id));
+      inverters = inverters.filter(i => validBuildingIds.has(i.building_id));
+    }
+    return [...new Set(inverters.map((i) => i.building_id))];
+  }, [structure, selectedParkId, lowBuildings]);
+
   const invertersForBuilding = useMemo(
     () => (structure?.solarInverters ?? []).filter((i) => i.building_id === solarBuildingId).sort((a, b) => a.inverter_no - b.inverter_no),
     [structure, solarBuildingId]
   );
+
+  // إعادة ضبط الحقول عند تغيير المنطقة المحددة
+  useEffect(() => {
+    setBuildingId(""); setFloorId(""); setLowMeterId(""); setMediumMeterId("");
+    setSolarBuildingId(""); setInverterId(""); setWaterMeterId(""); setKioskId("");
+    setError(null);
+  }, [selectedParkId]);
 
   useEffect(() => {
     setBuildingId(""); setFloorId(""); setLowMeterId(""); setMediumMeterId("");
@@ -221,7 +265,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
       return;
     }
     if (result.error === "LOWER_THAN_PREVIOUS") {
-      setPendingPrevValue(result.previousValue);
       setConfirmOpen(true);
       return;
     }
@@ -255,6 +298,19 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
       )}
 
       <Card>
+        {/* خانة فلترة المنطقة (تظهر تلقائياً إذا كانت هناك أكثر من منطقة متاحة للمستخدم، كحساب المهندس مثلاً) */}
+        {parksList.length > 1 && (
+          <div className="mb-4 pb-3 border-b border-border">
+            <FieldLabel>فلترة حسب المنطقة (Technology Park)</FieldLabel>
+            <Select value={selectedParkId} onChange={(e) => setSelectedParkId(e.target.value)}>
+              <option value="">جميع المناطق المتاحة</option>
+              {parksList.map((p: any) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+          </div>
+        )}
+
         <FieldLabel>{t("readingType")}</FieldLabel>
         <div className="flex gap-2 flex-wrap mb-4">
           {categories.map((c) => {
@@ -343,148 +399,3 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
               </>
             )}
           </>
-        )}
-
-        {category === "WATER" && (
-          <>
-            <FieldLabel>{t("meter")}</FieldLabel>
-            <Select value={waterMeterId} onChange={(e) => setWaterMeterId(e.target.value)} className="mb-3">
-              <option value="">{t("selectValue")}</option>
-              {visibleWaterMeters.map((w) => (
-                <option key={w.id} value={w.id}>{w.label_en}</option>
-              ))}
-            </Select>
-          </>
-        )}
-
-        {category === "KIOSK" && (
-          <>
-            <FieldLabel>{t("kiosk")}</FieldLabel>
-            {visibleKiosks.length === 0 ? (
-              <div className="text-sm text-brand-gray mb-3">{t("todayIsFirst")}</div>
-            ) : (
-              <Select value={kioskId} onChange={(e) => setKioskId(e.target.value)} className="mb-3">
-                <option value="">{t("selectValue")}</option>
-                {visibleKiosks!.map((k) => (
-                  <option key={k.id} value={k.id}>{k.name}</option>
-                ))}
-              </Select>
-            )}
-          </>
-        )}
-
-        {/* واجهة إدخال قراءات Main SG مع محاذاة يمين كاملة */}
-        {category === "DISTRIBUTOR" && (
-          <div className="space-y-3 mb-4">
-            <FieldLabel>اختر المنطقة (Technology Park):</FieldLabel>
-            <Select value={distributorParkId} onChange={(e) => setDistributorParkId(e.target.value)} className="mb-3">
-              <option value="">{t("selectValue")}</option>
-              {(structure?.parks ?? []).map((p: any) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </Select>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <FieldLabel className="text-right block text-xs mb-1">Phase A (Amp)</FieldLabel>
-                <Input 
-                  type="number" inputMode="decimal" value={phaseA}
-                  onChange={(e) => setPhaseA(e.target.value)}
-                  placeholder="0.0"
-                  className="font-mono text-sm text-right"
-                />
-              </div>
-              <div>
-                <FieldLabel className="text-right block text-xs mb-1">Phase B (Amp)</FieldLabel>
-                <Input 
-                  type="number" inputMode="decimal" value={phaseB}
-                  onChange={(e) => setPhaseB(e.target.value)}
-                  placeholder="0.0"
-                  className="font-mono text-sm text-right"
-                />
-              </div>
-              <div>
-                <FieldLabel className="text-right block text-xs mb-1">Phase C (Amp)</FieldLabel>
-                <Input 
-                  type="number" inputMode="decimal" value={phaseC}
-                  onChange={(e) => setPhaseC(e.target.value)}
-                  placeholder="0.0"
-                  className="font-mono text-sm text-right"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {(category === "MEDIUM" || category === "WATER" || category === "KIOSK") &&
-          entityId &&
-          [...(structure.meters ?? []), ...(structure.waterMeters ?? [])].find(
-            (m: any) => m.id === entityId && m.reading_frequency === "MONTHLY"
-          ) && <div className="mb-3"><Badge>{t("monthlyBadge")}</Badge></div>}
-
-        {alreadyRead && category !== "DISTRIBUTOR" && (
-          <div className="mb-3"><Badge tone="success">{t("alreadyReadThisPeriod")}</Badge></div>
-        )}
-
-        {category !== "SOLAR" && category !== "DISTRIBUTOR" && entityId && (
-          <div className="mb-3 px-3 py-2.5 rounded-lg bg-surface-soft text-sm flex justify-between items-center">
-            <span>{t("previousReading")}:</span>
-            <span className="font-mono font-semibold">{previousValue.toLocaleString()}</span>
-          </div>
-        )}
-
-        {category !== "DISTRIBUTOR" && canEnterValue && (
-          <>
-            <FieldLabel>{category === "SOLAR" ? t("dailyProduction") : t("currentReading")}</FieldLabel>
-            <Input
-              type="number" inputMode="decimal" value={currentValue}
-              onChange={(e) => setCurrentValue(e.target.value)}
-              className="mb-2 font-mono text-lg text-right"
-            />
-            {category !== "SOLAR" && !isNaN(numericCurrent) && currentValue !== "" && (
-              <div className={`mb-3 text-sm flex justify-between items-center ${isLower ? "text-danger" : "text-brand-gray"}`}>
-                <span>{isLower ? t("lowerWarningTitle") : `${t("consumption")}:`}</span>
-                {!isLower && <span className="font-mono font-semibold">{(numericCurrent - previousValue).toFixed(2)}</span>}
-              </div>
-            )}
-
-            <FieldLabel>{t("notes")}</FieldLabel>
-            <textarea
-              value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
-              className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm mb-4 resize-y"
-            />
-
-            {photoRequired && (
-              <div className="mb-4">
-                <FieldLabel>{t("photoRequiredTitle")}</FieldLabel>
-                <div className="text-xs text-brand-gray mb-2">{t("photoRequiredBody")}</div>
-                <PhotoCapture entityType={category} entityId={entityId} readingDate={readingDate} onAccepted={setPhotoId} />
-              </div>
-            )}
-
-            {error && <div className="mb-3 text-sm text-danger">{error}</div>}
-            {photoRequired && !photoId && (
-              <div className="mb-3 text-xs text-brand-gray">{t("submitDisabledNoPhoto")}</div>
-            )}
-
-            <Button onClick={handleSave} disabled={!canSave || submitting} className="w-full">
-              {submitting ? "…" : t("save")}
-            </Button>
-
-            {justSaved && <div className="mt-3 text-sm text-success">{t("saved")}</div>}
-          </>
-        )}
-
-        {category === "DISTRIBUTOR" && (
-          <>
-            {error && <div className="mb-3 text-sm text-danger">{error}</div>}
-            <Button onClick={handleSave} disabled={!canSave || submitting} className="w-full">
-              {submitting ? "جاري الحفظ..." : "حفظ قراءات Main SG"}
-            </Button>
-            {justSaved && <div className="mt-3 text-sm text-success">تم حفظ قراءات Main SG بنجاح!</div>}
-          </>
-        )}
-      </Card>
-    </div>
-  );
-}
