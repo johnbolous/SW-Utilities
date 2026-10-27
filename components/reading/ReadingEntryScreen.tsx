@@ -49,7 +49,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [previousValue, setPreviousValue] = useState(0);
   const [alreadyRead, setAlreadyRead] = useState(false);
   const [meterCode, setMeterCode] = useState("");
-  const [lastReadingDate, setLastReadingDate] = useState(""); // تاريخ آخر قراءة من reading_date
+  const [lastReadingDate, setLastReadingDate] = useState(""); // تاريخ آخر قراءة الفعلي من reading_date
   const [currentValue, setCurrentValue] = useState("");
   const [notes, setNotes] = useState("");
   const [photoId, setPhotoId] = useState<string | null>(null);
@@ -85,15 +85,15 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const matchesPark = (item: any, parkId: string) => {
     if (!parkId) return true;
     const itemParkId = String(item.park_id || item.parkId || item.technology_park_id || "");
-    if (!itemParkId) return true;
+    if (!itemParkId) return false;
     return itemParkId === String(parkId);
   };
 
+  // فلترة المباني بشكل صارم حسب المنطقة المحددة
   const lowBuildings = useMemo(() => {
     const list = structure?.buildings ?? [];
     if (!selectedParkId) return list;
-    const filtered = list.filter((b: any) => matchesPark(b, selectedParkId));
-    return filtered.length > 0 ? filtered : list;
+    return list.filter((b: any) => matchesPark(b, selectedParkId));
   }, [structure, selectedParkId]);
 
   const floorsForBuilding = useMemo(
@@ -109,37 +109,52 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     [structure, buildingId, floorId]
   );
 
+  // فلترة عدادات المتوسط بشكل صارم حسب المنطقة
   const visibleMediumMeters = useMemo(() => {
     let list = (structure?.meters ?? []).filter((m) => m.category === "MEDIUM" && (m.reading_frequency === "DAILY" || isFirst));
     if (selectedParkId) {
-      const filtered = list.filter((m: any) => matchesPark(m, selectedParkId));
-      return filtered.length > 0 ? filtered : list;
+      const validBuildingIds = new Set(lowBuildings.map(b => b.id));
+      list = list.filter((m: any) => 
+        matchesPark(m, selectedParkId) || 
+        (m.building_id && validBuildingIds.has(m.building_id))
+      );
     }
     return list;
-  }, [structure, isFirst, selectedParkId]);
+  }, [structure, isFirst, selectedParkId, lowBuildings]);
 
+  // فلترة عدادات المياه بشكل صارم حسب المنطقة
   const visibleWaterMeters = useMemo(() => {
     let list = structure?.waterMeters ?? [];
     if (selectedParkId) {
-      const filtered = list.filter((w: any) => matchesPark(w, selectedParkId));
-      return filtered.length > 0 ? filtered : list;
+      const validBuildingIds = new Set(lowBuildings.map(b => b.id));
+      list = list.filter((w: any) => 
+        matchesPark(w, selectedParkId) || 
+        (w.building_id && validBuildingIds.has(w.building_id))
+      );
     }
     return list;
-  }, [structure, selectedParkId]);
+  }, [structure, selectedParkId, lowBuildings]);
 
+  // فلترة الأكشاك بشكل صارم حسب المنطقة
   const visibleKiosks = useMemo(() => {
     let list = structure?.kiosks ?? [];
     if (selectedParkId) {
-      const filtered = list.filter((k: any) => matchesPark(k, selectedParkId));
-      return filtered.length > 0 ? filtered : list;
+      list = list.filter((k: any) => matchesPark(k, selectedParkId));
     }
     return list;
   }, [structure, selectedParkId]);
 
+  // فلترة مباني الطاقة الشمسية بشكل صارم حسب المنطقة
   const solarBuildingIds = useMemo(() => {
+    let buildings = structure?.buildings ?? [];
+    if (selectedParkId) {
+      buildings = buildings.filter((b: any) => matchesPark(b, selectedParkId));
+    }
+    const validBuildingIds = new Set(buildings.map(b => b.id));
+
     let inverters = structure?.solarInverters ?? [];
     if (selectedParkId) {
-      inverters = inverters.filter((i: any) => matchesPark(i, selectedParkId));
+      inverters = inverters.filter(i => validBuildingIds.has(i.building_id) || matchesPark(i, selectedParkId));
     }
     return [...new Set(inverters.map((i) => i.building_id))];
   }, [structure, selectedParkId]);
@@ -174,7 +189,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     category === "KIOSK" ? kioskId :
     distributorParkId;
 
-  // جلب آخر قراءة وتاريخها الفعلي باستخدام reading_date الأساسي
+  // جلب آخر قراءة وتاريخها الفعلي باستخدام حقل reading_date من الداتا بيز
   useEffect(() => {
     setPreviousValue(0); setAlreadyRead(false); setMeterCode(""); setLastReadingDate(""); setCurrentValue(""); setPhotoId(null);
 
@@ -185,8 +200,8 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
         setAlreadyRead(info.alreadyReadThisPeriod);
         setMeterCode(info.meterCode);
         
-        // جلب reading_date بشكل مباشر مع دعم البدائل الاحتياطية
-        const rawDate = info.reading_date || info.readingDate || info.lastReadingDate || info.date || info.created_at;
+        // جلب reading_date الفعلي من استجابة الداتا بيز
+        const rawDate = info.reading_date || info.readingDate || info.last_reading_date || info.lastReadingDate || info.date || info.created_at;
         if (rawDate) {
           setLastReadingDate(rawDate.split("T")[0]);
         } else {
@@ -270,7 +285,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     const result = await submitReading({
       entityType: category as ReadingEntityType,
       entityId,
-      readingDate: todayIso(), // الحفظ يتم بتاريخ اليوم الجديد
+      readingDate: todayIso(), // حفظ القراءة الجديدة بتاريخ اليوم
       currentValue: numericCurrent,
       notes,
       isLowerConfirmed,
