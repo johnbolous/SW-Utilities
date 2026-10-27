@@ -49,7 +49,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [previousValue, setPreviousValue] = useState(0);
   const [alreadyRead, setAlreadyRead] = useState(false);
   const [meterCode, setMeterCode] = useState("");
-  const [lastReadingDate, setLastReadingDate] = useState(""); // تاريخ آخر قراءة الفعلي من reading_date
+  const [lastReadingDate, setLastReadingDate] = useState(""); // تاريخ آخر قراءة الفعلي
   const [currentValue, setCurrentValue] = useState("");
   const [notes, setNotes] = useState("");
   const [photoId, setPhotoId] = useState<string | null>(null);
@@ -89,7 +89,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     return itemParkId === String(parkId);
   };
 
-  // فلترة المباني بشكل صارم حسب المنطقة المحددة
   const lowBuildings = useMemo(() => {
     const list = structure?.buildings ?? [];
     if (!selectedParkId) return list;
@@ -109,7 +108,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     [structure, buildingId, floorId]
   );
 
-  // فلترة عدادات المتوسط بشكل صارم حسب المنطقة
   const visibleMediumMeters = useMemo(() => {
     let list = (structure?.meters ?? []).filter((m) => m.category === "MEDIUM" && (m.reading_frequency === "DAILY" || isFirst));
     if (selectedParkId) {
@@ -122,7 +120,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     return list;
   }, [structure, isFirst, selectedParkId, lowBuildings]);
 
-  // فلترة عدادات المياه بشكل صارم حسب المنطقة
   const visibleWaterMeters = useMemo(() => {
     let list = structure?.waterMeters ?? [];
     if (selectedParkId) {
@@ -135,7 +132,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     return list;
   }, [structure, selectedParkId, lowBuildings]);
 
-  // فلترة الأكشاك بشكل صارم حسب المنطقة
   const visibleKiosks = useMemo(() => {
     let list = structure?.kiosks ?? [];
     if (selectedParkId) {
@@ -144,7 +140,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     return list;
   }, [structure, selectedParkId]);
 
-  // فلترة مباني الطاقة الشمسية بشكل صارم حسب المنطقة
   const solarBuildingIds = useMemo(() => {
     let buildings = structure?.buildings ?? [];
     if (selectedParkId) {
@@ -181,6 +176,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   useEffect(() => { setLowMeterId(""); }, [floorId]);
   useEffect(() => { setInverterId(""); }, [solarBuildingId]);
 
+  // تحديد الـ entityId الشامل لجميع الأقسام بما فيها الطاقة الشمسية
   const entityId =
     category === "LOW" ? lowMeterId :
     category === "MEDIUM" ? mediumMeterId :
@@ -189,35 +185,38 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     category === "KIOSK" ? kioskId :
     distributorParkId;
 
-  // جلب آخر قراءة وتاريخها الفعلي باستخدام حقل reading_date من الداتا بيز
+  // جلب آخر قراءة وتاريخها الفعلي (reading_date) لجميع الأقسام بما فيها الطاقة الشمسية
   useEffect(() => {
     setPreviousValue(0); setAlreadyRead(false); setMeterCode(""); setLastReadingDate(""); setCurrentValue(""); setPhotoId(null);
 
-    if (!entityId || category === "SOLAR" || category === "DISTRIBUTOR") return;
+    if (!entityId || category === "DISTRIBUTOR") return;
+    
     fetchLatestReading(category as ReadingEntityType, entityId)
       .then((info: any) => {
-        setPreviousValue(info.previousValue);
-        setAlreadyRead(info.alreadyReadThisPeriod);
-        setMeterCode(info.meterCode);
+        setPreviousValue(info.previousValue ?? info.previous_value ?? 0);
+        setAlreadyRead(info.alreadyReadThisPeriod ?? false);
+        setMeterCode(info.meterCode ?? info.meter_code ?? "");
         
-        // جلب reading_date الفعلي من استجابة الداتا بيز
+        // التقاط تاريخ reading_date الفعلي من استجابة الداتا بيز
         const rawDate = info.reading_date || info.readingDate || info.last_reading_date || info.lastReadingDate || info.date || info.created_at;
         if (rawDate) {
           setLastReadingDate(rawDate.split("T")[0]);
         } else {
-          setLastReadingDate("—");
+          setLastReadingDate(todayIso()); // وضع تاريخ اليوم كاحتياطي بدلاً من الشرطة لضمان عدم ظهورها فارغة
         }
       })
       .catch((err: any) => {
         setError(err?.message || "Fetch latest reading failed");
-        setLastReadingDate("—");
+        setLastReadingDate(todayIso());
       });
   }, [entityId, category]);
 
   useEffect(() => {
     if (category === "SOLAR" && inverterId) {
       const inv = (structure?.solarInverters ?? []).find((i) => i.id === inverterId);
-      setMeterCode(inv?.meter_code ?? "");
+      if (inv) {
+        setMeterCode(inv.meter_code ?? "");
+      }
     }
   }, [category, inverterId, structure]);
 
