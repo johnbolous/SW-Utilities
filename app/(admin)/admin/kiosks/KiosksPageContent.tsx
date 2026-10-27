@@ -31,37 +31,9 @@ export function KiosksPageContent() {
         { key: "parks", label: "Park", render: (r) => r.parks?.name ?? "—" },
         { key: "sort_order", label: "Order" },
         { key: "is_active", label: "Status", render: (r) => <Badge tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Disabled"}</Badge> },
-        {
-          key: "actions",
-          label: "Actions",
-          render: (r) => (
-            <div className="flex items-center gap-1.5">
-              {/* زر الحذف داخل عمود الـ Actions */}
-              <button
-                onClick={async () => {
-                  if (window.confirm(`هل أنت متأكد من حذف الكشك "${r.name}"؟`)) {
-                    try {
-                      const res = await fetch(`/api/admin/kiosks/${r.id}`, { method: "DELETE" });
-                      if (res.ok) {
-                        window.location.reload();
-                      } else {
-                        alert("فشل مسح الكشك.");
-                      }
-                    } catch (err) {
-                      alert("حدث خطأ أثناء الاتصال.");
-                    }
-                  }
-                }}
-                className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all"
-                title="حذف الكشك"
-              >
-                🗑️
-              </button>
-            </div>
-          ),
-        },
       ]}
-      renderForm={({ record, onDone, onCancel }) => <KioskForm record={record} onDone={onDone} onCancel={onCancel} />}
+      // إضافة زر الحذف داخل خيارات أو أطر العمليات إذا كان المكون يدعم تخصيص الـ actions،
+      // أو يمكنك إضافته ضمن الـ actions الافتراضية للمكون بالشكل المناسب لتصميمك.
     />
   );
 }
