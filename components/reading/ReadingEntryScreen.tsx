@@ -49,7 +49,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [previousValue, setPreviousValue] = useState(0);
   const [alreadyRead, setAlreadyRead] = useState(false);
   const [meterCode, setMeterCode] = useState("");
-  const [displayReadingDate, setDisplayReadingDate] = useState(todayIso());
+  const [lastReadingDate, setLastReadingDate] = useState(""); // تاريخ آخر قراءة سابقة الفعلي
   const [currentValue, setCurrentValue] = useState("");
   const [notes, setNotes] = useState("");
   const [photoId, setPhotoId] = useState<string | null>(null);
@@ -59,10 +59,8 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [justSaved, setJustSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // جعل متغيرات التاريخ آمنة لمنع مشاكل الـ Hydration
   const [isFirst, setIsFirst] = useState(false);
   const [photoRequired, setPhotoRequired] = useState(false);
-  const systemTodayIso = todayIso();
 
   useEffect(() => {
     const today = new Date();
@@ -176,9 +174,9 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     category === "KIOSK" ? kioskId :
     distributorParkId;
 
+  // جلب معلومات آخر قراءة مسجلة وتاريخها الفعلي
   useEffect(() => {
-    setPreviousValue(0); setAlreadyRead(false); setMeterCode(""); setCurrentValue(""); setPhotoId(null);
-    setDisplayReadingDate(systemTodayIso);
+    setPreviousValue(0); setAlreadyRead(false); setMeterCode(""); setLastReadingDate(""); setCurrentValue(""); setPhotoId(null);
 
     if (!entityId || category === "SOLAR" || category === "DISTRIBUTOR") return;
     fetchLatestReading(category as ReadingEntityType, entityId)
@@ -186,12 +184,11 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
         setPreviousValue(info.previousValue);
         setAlreadyRead(info.alreadyReadThisPeriod);
         setMeterCode(info.meterCode);
-        if (info.readingDate || info.lastReadingDate || info.date) {
-          setDisplayReadingDate(info.readingDate || info.lastReadingDate || info.date);
-        }
+        const rawDate = info.readingDate || info.lastReadingDate || info.date || info.created_at || "";
+        setLastReadingDate(rawDate ? rawDate.split("T")[0] : "—");
       })
       .catch((err: any) => setError(err?.message || "Fetch latest reading failed"));
-  }, [entityId, category, systemTodayIso]);
+  }, [entityId, category]);
 
   useEffect(() => {
     if (category === "SOLAR" && inverterId) {
@@ -264,7 +261,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     const result = await submitReading({
       entityType: category as ReadingEntityType,
       entityId,
-      readingDate: displayReadingDate,
+      readingDate: todayIso(), // تاريخ اليوم لتسجيل القراءة الجديدة
       currentValue: numericCurrent,
       notes,
       isLowerConfirmed,
@@ -481,7 +478,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
           <>
             <div className="mb-3 flex justify-between items-center text-xs text-brand-gray">
               <span>{t("previousValue")}: <strong className="font-mono text-brand-navy">{previousValue}</strong></span>
-              <span>{t("readingDate")}: <strong className="font-mono text-brand-navy">{displayReadingDate}</strong></span>
+              <span>{t("readingDate")}: <strong className="font-mono text-brand-navy">{lastReadingDate}</strong></span>
             </div>
 
             <FieldLabel>{t("currentValue")}</FieldLabel>
@@ -515,7 +512,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
                 userId={userId}
                 entityType={category as ReadingEntityType}
                 entityId={entityId}
-                readingDate={displayReadingDate}
+                readingDate={todayIso()}
                 onPhotoUploaded={(id) => setPhotoId(id)}
                 required={photoRequired}
               />
