@@ -22,6 +22,19 @@ export function KiosksPageContent() {
       getId={(r) => r.id}
       getStatus={(r) => r.is_active}
       statusFieldLabel="kiosk"
+      deleteLabel="kiosk"
+      onDelete={async (r) => {
+        try {
+          const res = await fetch(`/api/admin/kiosks/${r.id}`, { method: "DELETE" });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            return { ok: false, error: body.error || "Failed to delete kiosk" };
+          }
+          return { ok: true };
+        } catch {
+          return { ok: false, error: "Network error while deleting" };
+        }
+      }}
       searchPlaceholder="Search by name or meter code…"
       newLabel="+ New kiosk"
       filters={[
