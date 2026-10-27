@@ -29,7 +29,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [category, setCategory] = useState<ReadingEntityType | "DISTRIBUTOR">("LOW");
 
-  // إضافة حالة المنطقة المحددة للفلترة العامة
   const [selectedParkId, setSelectedParkId] = useState("");
 
   const [buildingId, setBuildingId] = useState("");
@@ -41,7 +40,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [waterMeterId, setWaterMeterId] = useState("");
   const [kioskId, setKioskId] = useState("");
 
-  // حقول قراءات Main SG
   const [distributorParkId, setDistributorParkId] = useState("");
   const [phaseA, setPhaseA] = useState("");
   const [phaseB, setPhaseB] = useState("");
@@ -67,7 +65,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     fetchStructure()
       .then((data) => {
         setStructure(data);
-        // إذا كانت هناك منطقة واحدة فقط متاحة، قم بتحديدها تلقائياً
         const parksList = data?.parks ?? [];
         if (parksList.length === 1) {
           setSelectedParkId(parksList[0].id);
@@ -79,7 +76,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const isFirst = today.getDate() === 1;
   const parksList = structure?.parks ?? [];
 
-  // فلترة العناصر بناءً على المنطقة المحددة (selectedParkId)
   const lowBuildings = useMemo(() => {
     let list = (structure?.buildings ?? []).filter((b) => b.has_meters);
     if (selectedParkId) {
@@ -139,7 +135,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     [structure, solarBuildingId]
   );
 
-  // إعادة ضبط الحقول عند تغيير المنطقة المحددة
   useEffect(() => {
     setBuildingId(""); setFloorId(""); setLowMeterId(""); setMediumMeterId("");
     setSolarBuildingId(""); setInverterId(""); setWaterMeterId(""); setKioskId("");
@@ -298,7 +293,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
       )}
 
       <Card>
-        {/* خانة فلترة المنطقة (تظهر تلقائياً إذا كانت هناك أكثر من منطقة متاحة للمستخدم، كحساب المهندس مثلاً) */}
         {parksList.length > 1 && (
           <div className="mb-4 pb-3 border-b border-border">
             <FieldLabel>فلترة حسب المنطقة (Technology Park)</FieldLabel>
@@ -399,3 +393,142 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
               </>
             )}
           </>
+        )}
+
+        {category === "WATER" && (
+          <>
+            <FieldLabel>{t("meter")}</FieldLabel>
+            <Select value={waterMeterId} onChange={(e) => setWaterMeterId(e.target.value)} className="mb-3">
+              <option value="">{t("selectValue")}</option>
+              {visibleWaterMeters.map((w) => (
+                <option key={w.id} value={w.id}>{w.label_en}</option>
+              ))}
+            </Select>
+          </>
+        )}
+
+        {category === "KIOSK" && (
+          <>
+            <FieldLabel>{t("kiosks")}</FieldLabel>
+            <Select value={kioskId} onChange={(e) => setKioskId(e.target.value)} className="mb-3">
+              <option value="">{t("selectValue")}</option>
+              {visibleKiosks.map((k) => (
+                <option key={k.id} value={k.id}>{k.label_en}</option>
+              ))}
+            </Select>
+          </>
+        )}
+
+        {category === "DISTRIBUTOR" && (
+          <>
+            <FieldLabel>المنطقة (Park)</FieldLabel>
+            <Select value={distributorParkId} onChange={(e) => setDistributorParkId(e.target.value)} className="mb-3">
+              <option value="">{t("selectValue")}</option>
+              {parksList.map((p: any) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div>
+                <FieldLabel>Phase A (MVA)</FieldLabel>
+                <Input type="number" step="0.001" value={phaseA} onChange={(e) => setPhaseA(e.target.value)} placeholder="0.000" />
+              </div>
+              <div>
+                <FieldLabel>Phase B (MVA)</FieldLabel>
+                <Input type="number" step="0.001" value={phaseB} onChange={(e) => setPhaseB(e.target.value)} placeholder="0.000" />
+              </div>
+              <div>
+                <FieldLabel>Phase C (MVA)</FieldLabel>
+                <Input type="number" step="0.001" value={phaseC} onChange={(e) => setPhaseC(e.target.value)} placeholder="0.000" />
+              </div>
+            </div>
+          </>
+        )}
+
+        {meterCode && (
+          <div className="mb-3 text-xs text-brand-gray">
+            {t("meterCode")}: <span className="font-mono font-semibold text-brand-navy">{meterCode}</span>
+          </div>
+        )}
+
+        {alreadyRead && category !== "DISTRIBUTOR" && (
+          <div className="mb-3 p-3 bg-warning/10 text-warning text-xs rounded-lg font-semibold">
+            {t("alreadyReadThisPeriod")}
+          </div>
+        )}
+
+        {category !== "DISTRIBUTOR" && (
+          <>
+            <div className="mb-3 flex justify-between items-center text-xs text-brand-gray">
+              <span>{t("previousValue")}: <strong className="font-mono text-brand-navy">{previousValue}</strong></span>
+              <span>{t("readingDate")}: <strong className="font-mono text-brand-navy">{readingDate}</strong></span>
+            </div>
+
+            <FieldLabel>{t("currentValue")}</FieldLabel>
+            <Input
+              type="number"
+              step="any"
+              value={currentValue}
+              onChange={(e) => setCurrentValue(e.target.value)}
+              disabled={!canEnterValue || alreadyRead}
+              placeholder="0"
+              className="mb-3 font-mono text-lg"
+            />
+
+            {isLower && (
+              <div className="mb-3 p-3 bg-danger/10 text-danger text-xs rounded-lg">
+                ⚠️ القراءة الحالية أقل من القراءة السابقة! سيطلب منك توضيح السبب عند الحفظ.
+              </div>
+            )}
+
+            <FieldLabel>{t("notes")} ({t("optional")})</FieldLabel>
+            <Input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={!canEnterValue || alreadyRead}
+              placeholder={t("notesPlaceholder")}
+              className="mb-4"
+            />
+
+            <PhotoCapture
+              userId={userId}
+              entityType={category as ReadingEntityType}
+              entityId={entityId}
+              readingDate={readingDate}
+              onPhotoUploaded={(id) => setPhotoId(id)}
+              required={photoRequired}
+            />
+          </>
+        )}
+
+        {error && <div className="mt-3 p-3 bg-danger/10 text-danger text-xs rounded-lg">{error}</div>}
+        {justSaved && <div className="mt-3 p-3 bg-success/10 text-success text-xs rounded-lg font-semibold">✓ تم الحفظ بنجاح</div>}
+
+        <Button
+          onClick={handleSave}
+          disabled={!canSave || submitting}
+          className="w-full mt-4"
+        >
+          {submitting ? "جاري الحفظ..." : t("saveReading")}
+        </Button>
+      </Card>
+
+      <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+        <div className="p-4 space-y-3" dir="rtl">
+          <h3 className="font-display font-bold text-base text-brand-navy">تأكيد القراءة المنخفضة</h3>
+          <p className="text-xs text-brand-gray">القراءة الحالية أقل من القراءة السابقة. يرجى إدخال سبب مقنع للمتابعة:</p>
+          <Input id="lower-reason-input" placeholder="اكتب السبب هنا..." className="mb-3" />
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>إلغاء</Button>
+            <Button onClick={() => {
+              const inputEl = document.getElementById("lower-reason-input") as HTMLInputElement;
+              const reason = inputEl?.value || "";
+              setConfirmOpen(false);
+              doSubmit(true, reason);
+            }}>تأكيد وحفظ</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
