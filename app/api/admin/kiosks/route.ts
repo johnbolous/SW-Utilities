@@ -23,18 +23,28 @@ export async function GET(request: NextRequest) {
   if (error) return NextResponse.json({ error: "LOAD_FAILED", detail: error.message }, { status: 500 });
 
   const kiosks = data ?? [];
+  
+  // جلب أسماء المباني
   const buildingIds = Array.from(new Set(kiosks.map((k) => k.building_id).filter((id): id is string => !!id)));
   const { data: buildingRows } = buildingIds.length
     ? await supabase.from("buildings").select("id, name_en").in("id", buildingIds)
     : { data: [] };
   const nameById = new Map((buildingRows ?? []).map((b) => [b.id, b.name_en]));
 
-  const kiosksWithBuilding = kiosks.map((k) => ({
+  // جلب أسماء المناطق (Parks)
+  const parkIds = Array.from(new Set(kiosks.map((k) => (k as any).park_id).filter((id): id is string => !!id)));
+  const { data: parkRows } = parkIds.length
+    ? await supabase.from("parks").select("id, name").in("id", parkIds)
+    : { data: [] };
+  const parkNameById = new Map((parkRows ?? []).map((p) => [p.id, p.name]));
+
+  const kiosksWithDetails = kiosks.map((k) => ({
     ...k,
     buildings: k.building_id ? { name_en: nameById.get(k.building_id) ?? "—" } : null,
+    parks: (k as any).park_id ? { name: parkNameById.get((k as any).park_id) ?? "—" } : null,
   }));
 
-  return NextResponse.json({ kiosks: kiosksWithBuilding, total: count ?? 0, page, pageSize });
+  return NextResponse.json({ kiosks: kiosksWithDetails, total: count ?? 0, page, pageSize });
 }
 
 export async function POST(request: NextRequest) {
@@ -49,6 +59,7 @@ export async function POST(request: NextRequest) {
   const meterCode = (body.meterCode ?? "").trim().toUpperCase();
   const sortOrder = Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0;
   const buildingId = typeof body.buildingId === "string" && body.buildingId ? body.buildingId : null;
+  const parkId = typeof body.parkId === "string" && body.parkId ? body.parkId : null; // استقبال الـ parkId
 
   if (!name) return NextResponse.json({ error: "MISSING_NAME" }, { status: 400 });
   if (!meterCode) return NextResponse.json({ error: "MISSING_METER_CODE" }, { status: 400 });
@@ -59,6 +70,7 @@ export async function POST(request: NextRequest) {
     meter_code: meterCode,
     sort_order: sortOrder,
     building_id: buildingId,
+    park_id: parkId, // حفظ الـ park_id في قاعدة البيانات
   };
   const { data, error } = await supabase.from("kiosks").insert(insertRow).select().single();
 
