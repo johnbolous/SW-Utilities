@@ -49,7 +49,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [previousValue, setPreviousValue] = useState(0);
   const [alreadyRead, setAlreadyRead] = useState(false);
   const [meterCode, setMeterCode] = useState("");
-  const [displayReadingDate, setDisplayReadingDate] = useState(todayIso()); // تاريخ القراءة المعروض
+  const [displayReadingDate, setDisplayReadingDate] = useState(todayIso());
   const [currentValue, setCurrentValue] = useState("");
   const [notes, setNotes] = useState("");
   const [photoId, setPhotoId] = useState<string | null>(null);
@@ -116,22 +116,23 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   }, [structure, isFirst, selectedParkId]);
 
   const visibleWaterMeters = useMemo(() => {
-    let list = (structure?.waterMeters ?? []).filter((w) => w.reading_frequency === "DAILY" || isFirst);
+    let list = structure?.waterMeters ?? [];
     if (selectedParkId) {
       const filtered = list.filter((w: any) => matchesPark(w, selectedParkId));
       return filtered.length > 0 ? filtered : list;
     }
     return list;
-  }, [structure, isFirst, selectedParkId]);
+  }, [structure, selectedParkId]);
 
+  // تحديث عرض الأكشاك لتظهر مباشرة دون التقيد بشرط أول الشهر فقط
   const visibleKiosks = useMemo(() => {
-    let list = isFirst ? structure?.kiosks ?? [] : [];
+    let list = structure?.kiosks ?? [];
     if (selectedParkId) {
       const filtered = list.filter((k: any) => matchesPark(k, selectedParkId));
       return filtered.length > 0 ? filtered : list;
     }
     return list;
-  }, [structure, isFirst, selectedParkId]);
+  }, [structure, selectedParkId]);
 
   const solarBuildingIds = useMemo(() => {
     let inverters = structure?.solarInverters ?? [];
@@ -181,7 +182,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
         setPreviousValue(info.previousValue);
         setAlreadyRead(info.alreadyReadThisPeriod);
         setMeterCode(info.meterCode);
-        // تحديث التاريخ ليطابق تاريخ آخر قراءة مسجلة إن وجد في الاستجابة، وإلا يتم استخدام تاريخ اليوم
         if (info.readingDate || info.lastReadingDate || info.date) {
           setDisplayReadingDate(info.readingDate || info.lastReadingDate || info.date);
         }
