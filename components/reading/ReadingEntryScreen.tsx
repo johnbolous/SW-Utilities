@@ -49,7 +49,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [previousValue, setPreviousValue] = useState(0);
   const [alreadyRead, setAlreadyRead] = useState(false);
   const [meterCode, setMeterCode] = useState("");
-  const [lastReadingDate, setLastReadingDate] = useState(""); // تاريخ آخر قراءة سابقة الفعلي
+  const [lastReadingDate, setLastReadingDate] = useState(""); // تاريخ آخر قراءة من reading_date
   const [currentValue, setCurrentValue] = useState("");
   const [notes, setNotes] = useState("");
   const [photoId, setPhotoId] = useState<string | null>(null);
@@ -174,7 +174,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     category === "KIOSK" ? kioskId :
     distributorParkId;
 
-  // جلب معلومات آخر قراءة مسجلة وتاريخها الفعلي
+  // جلب آخر قراءة وتاريخها الفعلي باستخدام reading_date الأساسي
   useEffect(() => {
     setPreviousValue(0); setAlreadyRead(false); setMeterCode(""); setLastReadingDate(""); setCurrentValue(""); setPhotoId(null);
 
@@ -184,10 +184,19 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
         setPreviousValue(info.previousValue);
         setAlreadyRead(info.alreadyReadThisPeriod);
         setMeterCode(info.meterCode);
-        const rawDate = info.readingDate || info.lastReadingDate || info.date || info.created_at || "";
-        setLastReadingDate(rawDate ? rawDate.split("T")[0] : "—");
+        
+        // جلب reading_date بشكل مباشر مع دعم البدائل الاحتياطية
+        const rawDate = info.reading_date || info.readingDate || info.lastReadingDate || info.date || info.created_at;
+        if (rawDate) {
+          setLastReadingDate(rawDate.split("T")[0]);
+        } else {
+          setLastReadingDate("—");
+        }
       })
-      .catch((err: any) => setError(err?.message || "Fetch latest reading failed"));
+      .catch((err: any) => {
+        setError(err?.message || "Fetch latest reading failed");
+        setLastReadingDate("—");
+      });
   }, [entityId, category]);
 
   useEffect(() => {
@@ -261,7 +270,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     const result = await submitReading({
       entityType: category as ReadingEntityType,
       entityId,
-      readingDate: todayIso(), // تاريخ اليوم لتسجيل القراءة الجديدة
+      readingDate: todayIso(), // الحفظ يتم بتاريخ اليوم الجديد
       currentValue: numericCurrent,
       notes,
       isLowerConfirmed,
