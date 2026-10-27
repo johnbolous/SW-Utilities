@@ -21,8 +21,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (body.sortOrder !== undefined && Number.isFinite(Number(body.sortOrder))) patch.sort_order = Number(body.sortOrder);
   if (typeof body.isActive === "boolean") patch.is_active = body.isActive;
   if (typeof body.buildingId === "string") patch.building_id = body.buildingId || null;
-  
-  // التأكد من استقبال وتحديث الـ park_id بشكل صحيح
   if (typeof body.parkId === "string") patch.park_id = body.parkId || null;
 
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: "NOTHING_TO_UPDATE" }, { status: 400 });
@@ -32,4 +30,20 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   await logAudit(supabase, { actorId: admin.id, action: "kiosk_updated", tableName: "kiosks", recordId: params.id, oldValue: before, newValue: after });
   return NextResponse.json({ kiosk: after });
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const guard = await requireRole(["admin"]);
+  if (guard instanceof NextResponse) return guard;
+  const admin = guard;
+
+  const supabase = createAdminClient();
+  const { data: before } = await supabase.from("kiosks").select("*").eq("id", params.id).maybeSingle();
+  if (!before) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+
+  const { error } = await supabase.from("kiosks").delete().eq("id", params.id);
+  if (error) return NextResponse.json({ error: "DELETE_FAILED", detail: error.message }, { status: 500 });
+
+  await logAudit(supabase, { actorId: admin.id, action: "kiosk_deleted", tableName: "kiosks", recordId: params.id, oldValue: before });
+  return NextResponse.json({ success: true });
 }
