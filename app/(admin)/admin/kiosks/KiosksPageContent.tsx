@@ -41,34 +41,11 @@ export function KiosksPageContent() {
         { key: "sort_order", label: "Order" },
         {
           key: "is_active",
-          label: "Status & Actions",
+          label: "Status",
           render: (r) => (
-            <div className="flex items-center gap-3">
-              <Badge tone={r.is_active ? "success" : "danger"}>
-                {r.is_active ? "Active" : "Disabled"}
-              </Badge>
-              <button
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (window.confirm(`هل أنت متأكد من حذف الكشك "${r.name}"؟`)) {
-                    try {
-                      const res = await fetch(`/api/admin/kiosks/${r.id}`, { method: "DELETE" });
-                      if (res.ok) {
-                        window.location.reload();
-                      } else {
-                        alert("فشل مسح الكشك.");
-                      }
-                    } catch (err) {
-                      alert("حدث خطأ أثناء الاتصال.");
-                    }
-                  }
-                }}
-                className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
-                title="حذف الكشك"
-              >
-                🗑️ حذف
-              </button>
-            </div>
+            <Badge tone={r.is_active ? "success" : "danger"}>
+              {r.is_active ? "Active" : "Disabled"}
+            </Badge>
           ),
         },
       ]}
