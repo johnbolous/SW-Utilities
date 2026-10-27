@@ -40,6 +40,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [waterMeterId, setWaterMeterId] = useState("");
   const [kioskId, setKioskId] = useState("");
 
+  // حقول قراءات Main SG
   const [distributorParkId, setDistributorParkId] = useState("");
   const [phaseA, setPhaseA] = useState("");
   const [phaseB, setPhaseB] = useState("");
@@ -68,7 +69,8 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
         setStructure(data);
         const parksList = data?.parks ?? [];
         if (parksList.length === 1) {
-          setSelectedParkId(parksList.id);
+          setSelectedParkId(parksList[0].id);
+          setDistributorParkId(parksList[0].id);
         }
       })
       .catch((err: any) => setLoadError(err?.message || "Load structure failed"));
@@ -147,7 +149,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   useEffect(() => {
     setBuildingId(""); setFloorId(""); setLowMeterId(""); setMediumMeterId("");
     setSolarBuildingId(""); setInverterId(""); setWaterMeterId(""); setKioskId("");
-    setDistributorParkId(""); setPhaseA(""); setPhaseB(""); setPhaseC("");
+    setPhaseA(""); setPhaseB(""); setPhaseC("");
     setCurrentValue(""); setNotes(""); setPhotoId(null); setError(null);
   }, [category]);
 
@@ -226,7 +228,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
       setPhaseA("");
       setPhaseB("");
       setPhaseC("");
-      setDistributorParkId("");
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2500);
     } catch (err: any) {
@@ -314,8 +315,8 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
           })}
         </div>
 
-        {/* نقل فلترة المنطقة لتصبح تحت خانة Reading Type مباشرة */}
-        {parksList.length > 1 && (
+        {/* فلترة المنطقة للأقسام العادية (تظهر تحت الـ Reading Type إذا كانت الأقسام غير Main SG) */}
+        {category !== "DISTRIBUTOR" && parksList.length > 1 && (
           <div className="mb-4 pb-3 border-b border-border">
             <FieldLabel>فلترة حسب المنطقة (Technology Park)</FieldLabel>
             <Select value={selectedParkId} onChange={(e) => setSelectedParkId(e.target.value)}>
