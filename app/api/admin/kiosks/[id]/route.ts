@@ -21,7 +21,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (body.sortOrder !== undefined && Number.isFinite(Number(body.sortOrder))) patch.sort_order = Number(body.sortOrder);
   if (typeof body.isActive === "boolean") patch.is_active = body.isActive;
   if (typeof body.buildingId === "string") patch.building_id = body.buildingId || null;
-  if (typeof body.parkId === "string") patch.park_id = body.parkId || null;
+  
+  if (typeof body.parkId === "string") {
+    patch.park_id = body.parkId.trim() !== "" ? body.parkId.trim() : null;
+  }
 
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: "NOTHING_TO_UPDATE" }, { status: 400 });
 
