@@ -78,13 +78,20 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
 
   const parksList = structure?.parks ?? [];
 
-  // فلترة المباني بناءً على المنطقة المحددة
+  // دالة مساعدة مطورة للتحقق من تطابق المنطقة مع دعم الحقول المختلفة
+  const matchesPark = (item: any, parkId: string) => {
+    if (!parkId) return true;
+    const itemParkId = String(item.park_id || item.parkId || item.technology_park_id || "");
+    if (!itemParkId) return true; // إذا لم يكن محدداً، اعرضه لضمان عدم اختفاء البيانات
+    return itemParkId === String(parkId);
+  };
+
+  // فلترة المباني مع ضمان عدم الاختفاء إذا لم تطابق بشكل صارم
   const lowBuildings = useMemo(() => {
-    let list = structure?.buildings ?? [];
-    if (selectedParkId) {
-      list = list.filter((b: any) => String(b.park_id || b.parkId) === String(selectedParkId));
-    }
-    return list;
+    const list = structure?.buildings ?? [];
+    if (!selectedParkId) return list;
+    const filtered = list.filter((b: any) => matchesPark(b, selectedParkId));
+    return filtered.length > 0 ? filtered : list;
   }, [structure, selectedParkId]);
 
   const floorsForBuilding = useMemo(
@@ -103,25 +110,26 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const visibleMediumMeters = useMemo(() => {
     let list = (structure?.meters ?? []).filter((m) => m.category === "MEDIUM" && (m.reading_frequency === "DAILY" || isFirst));
     if (selectedParkId) {
-      const validBuildingIds = new Set(lowBuildings.map(b => b.id));
-      list = list.filter((m: any) => String(m.park_id || m.parkId) === String(selectedParkId) || (m.building_id && validBuildingIds.has(m.building_id)));
+      const filtered = list.filter((m: any) => matchesPark(m, selectedParkId));
+      return filtered.length > 0 ? filtered : list;
     }
     return list;
-  }, [structure, isFirst, selectedParkId, lowBuildings]);
+  }, [structure, isFirst, selectedParkId]);
 
   const visibleWaterMeters = useMemo(() => {
     let list = (structure?.waterMeters ?? []).filter((w) => w.reading_frequency === "DAILY" || isFirst);
     if (selectedParkId) {
-      const validBuildingIds = new Set(lowBuildings.map(b => b.id));
-      list = list.filter((w: any) => String(w.park_id || w.parkId) === String(selectedParkId) || (w.building_id && validBuildingIds.has(w.building_id)));
+      const filtered = list.filter((w: any) => matchesPark(w, selectedParkId));
+      return filtered.length > 0 ? filtered : list;
     }
     return list;
-  }, [structure, isFirst, selectedParkId, lowBuildings]);
+  }, [structure, isFirst, selectedParkId]);
 
   const visibleKiosks = useMemo(() => {
     let list = isFirst ? structure?.kiosks ?? [] : [];
     if (selectedParkId) {
-      list = list.filter((k: any) => String(k.park_id || k.parkId) === String(selectedParkId));
+      const filtered = list.filter((k: any) => matchesPark(k, selectedParkId));
+      return filtered.length > 0 ? filtered : list;
     }
     return list;
   }, [structure, isFirst, selectedParkId]);
@@ -129,11 +137,10 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const solarBuildingIds = useMemo(() => {
     let inverters = structure?.solarInverters ?? [];
     if (selectedParkId) {
-      const validBuildingIds = new Set(lowBuildings.map(b => b.id));
-      inverters = inverters.filter(i => validBuildingIds.has(i.building_id));
+      inverters = inverters.filter((i: any) => matchesPark(i, selectedParkId));
     }
     return [...new Set(inverters.map((i) => i.building_id))];
-  }, [structure, selectedParkId, lowBuildings]);
+  }, [structure, selectedParkId]);
 
   const invertersForBuilding = useMemo(
     () => (structure?.solarInverters ?? []).filter((i) => i.building_id === solarBuildingId).sort((a, b) => a.inverter_no - b.inverter_no),
@@ -315,7 +322,6 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
           })}
         </div>
 
-        {/* فلترة المنطقة للأقسام العادية (تظهر تحت الـ Reading Type إذا كانت الأقسام غير Main SG) */}
         {category !== "DISTRIBUTOR" && parksList.length > 1 && (
           <div className="mb-4 pb-3 border-b border-border">
             <FieldLabel>فلترة حسب المنطقة (Technology Park)</FieldLabel>
@@ -334,7 +340,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             <Select value={buildingId} onChange={(e) => setBuildingId(e.target.value)} className="mb-3">
               <option value="">{t("selectValue")}</option>
               {lowBuildings.map((b: Building) => (
-                <option key={b.id} value={b.id}>{b.name_en}</option>
+                <option key={b.id} value={b.id}>{b.name_en || (b as any).name}</option>
               ))}
             </Select>
             {floorsForBuilding.length > 0 && (
@@ -343,7 +349,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
                 <Select value={floorId} onChange={(e) => setFloorId(e.target.value)} className="mb-3">
                   <option value="">{t("selectValue")}</option>
                   {floorsForBuilding.map((f: Floor) => (
-                    <option key={f.id} value={f.id}>{f.name_en}</option>
+                    <option key={f.id} value={f.id}>{f.name_en || (f as any).name}</option>
                   ))}
                 </Select>
               </>
@@ -370,7 +376,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             <Select value={mediumMeterId} onChange={(e) => setMediumMeterId(e.target.value)} className="mb-3">
               <option value="">{t("selectValue")}</option>
               {visibleMediumMeters.map((m) => (
-                <option key={m.id} value={m.id}>{m.label_en}</option>
+                <option key={m.id} value={m.id}>{m.label_en || (m as any).name}</option>
               ))}
             </Select>
           </>
@@ -383,7 +389,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
               <option value="">{t("selectValue")}</option>
               {solarBuildingIds.map((bid) => {
                 const b = (structure!.buildings ?? []).find((x) => x.id === bid);
-                return <option key={bid} value={bid}>{b?.name_en ?? bid}</option>;
+                return <option key={bid} value={bid}>{b?.name_en ?? (b as any)?.name ?? bid}</option>;
               })}
             </Select>
             {solarBuildingId && (
@@ -406,7 +412,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             <Select value={waterMeterId} onChange={(e) => setWaterMeterId(e.target.value)} className="mb-3">
               <option value="">{t("selectValue")}</option>
               {visibleWaterMeters.map((w) => (
-                <option key={w.id} value={w.id}>{w.label_en}</option>
+                <option key={w.id} value={w.id}>{w.label_en || (w as any).name}</option>
               ))}
             </Select>
           </>
@@ -418,7 +424,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             <Select value={kioskId} onChange={(e) => setKioskId(e.target.value)} className="mb-3">
               <option value="">{t("selectValue")}</option>
               {visibleKiosks.map((k) => (
-                <option key={k.id} value={k.id}>{k.label_en}</option>
+                <option key={k.id} value={k.id}>{k.label_en || (k as any).name}</option>
               ))}
             </Select>
           </>
