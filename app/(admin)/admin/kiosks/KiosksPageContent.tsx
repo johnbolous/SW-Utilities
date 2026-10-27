@@ -10,6 +10,7 @@ interface KioskRow {
   meter_code: string;
   sort_order: number;
   is_active: boolean;
+  parks?: { name: string } | null; // أضفنا بيانات المنطقة للعرض
 }
 
 export function KiosksPageContent() {
@@ -27,6 +28,7 @@ export function KiosksPageContent() {
       columns={[
         { key: "name", label: "Name" },
         { key: "meter_code", label: "Code" },
+        { key: "parks", label: "Park", render: (r) => r.parks?.name ?? "—" }, // عمود عرض اسم المنطقة
         { key: "sort_order", label: "Order" },
         { key: "is_active", label: "Status", render: (r) => <Badge tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Disabled"}</Badge> },
       ]}
