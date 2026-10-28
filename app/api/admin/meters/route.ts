@@ -19,17 +19,6 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient();
 
-  // إذا تم تحديد parkId ولم يتم تحديد buildingId، نجلب المباني التابعة للمنطقة أولاً
-  let buildingIdsInPark: string[] | null = null;
-  if (parkId && !buildingId) {
-    const { data: parkBuildings } = await supabase
-      .from("buildings")
-      .select("id")
-      .eq("technology_park_id", parkId);
-    
-    buildingIdsInPark = (parkBuildings ?? []).map((b) => b.id);
-  }
-
   let query = supabase
     .from("meters")
     .select("*", { count: "exact" })
@@ -37,16 +26,15 @@ export async function GET(request: NextRequest) {
 
   if (q) query = query.or(`label_en.ilike.%${q}%,meter_code.ilike.%${q}%`);
   if (isMeterCategory(categoryParam)) query = query.eq("category", categoryParam);
+  
+  // فلترة المبنى إن وجد
   if (buildingId) {
     query = query.eq("building_id", buildingId);
-  } else if (buildingIdsInPark !== null) {
-    // إذا كان فلتر المنطقة موجود، نحدد العدادات التابعة لمباني هذه المنطقة
-    if (buildingIdsInPark.length > 0) {
-      query = query.in("building_id", buildingIdsInPark);
-    } else {
-      // إذا لم توجد مباني في هذه المنطقة، نرجع نتيجة فارغة فوراً
-      query = query.in("building_id", ["00000000-0000-0000-0000-000000000000"]);
-    }
+  }
+
+  // فلترة المنطقة مباشرة باستخدام technology_park_id الموجود في الجدول
+  if (parkId) {
+    query = query.eq("technology_park_id", parkId);
   }
 
   if (status === "active") query = query.eq("is_active", true);
@@ -94,6 +82,7 @@ export async function POST(request: NextRequest) {
   const readingFrequency = body.readingFrequency === "MONTHLY" ? "MONTHLY" : "DAILY";
   const monthlyReadingDay = readingFrequency === "MONTHLY" ? Number(body.monthlyReadingDay) || 1 : null;
   const sortOrder = Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0;
+  const technologyParkId = typeof body.technologyParkId === "string" && body.technologyParkId ? body.technologyParkId : null;
 
   if (!buildingId) return NextResponse.json({ error: "MISSING_BUILDING" }, { status: 400 });
   if (!labelEn) return NextResponse.json({ error: "MISSING_LABEL" }, { status: 400 });
@@ -110,6 +99,7 @@ export async function POST(request: NextRequest) {
     reading_frequency: readingFrequency,
     monthly_reading_day: monthlyReadingDay,
     sort_order: sortOrder,
+    technology_park_id: technologyParkId,
   };
 
   const { data, error } = await supabase.from("meters").insert(insertRow).select().single();
