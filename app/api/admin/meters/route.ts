@@ -19,6 +19,17 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient();
 
+  // إذا تم اختيار منطقة (parkId)، نبحث عن المباني التابعة لها لضمان جلب عداداتها حتى لو لم يكن technology_park_id مسجلاً بشكل مباشر في جدول العدادات
+  let buildingIdsInPark: string[] = [];
+  if (parkId) {
+    const { data: parkBuildings } = await supabase
+      .from("buildings")
+      .select("id")
+      .eq("technology_park_id", parkId);
+    
+    buildingIdsInPark = (parkBuildings ?? []).map((b) => b.id);
+  }
+
   let query = supabase
     .from("meters")
     .select("*", { count: "exact" })
@@ -27,14 +38,15 @@ export async function GET(request: NextRequest) {
   if (q) query = query.or(`label_en.ilike.%${q}%,meter_code.ilike.%${q}%`);
   if (isMeterCategory(categoryParam)) query = query.eq("category", categoryParam);
   
-  // فلترة المبنى إن وجد
   if (buildingId) {
     query = query.eq("building_id", buildingId);
-  }
-
-  // فلترة المنطقة مباشرة باستخدام technology_park_id الموجود في الجدول
-  if (parkId) {
-    query = query.eq("technology_park_id", parkId);
+  } else if (parkId) {
+    // فلترة ذكية: إما أن يكون العداد تابعاً للمنطقة مباشرة، أو تابعاً لمبنى داخل هذه المنطقة
+    if (buildingIdsInPark.length > 0) {
+      query = query.or(`technology_park_id.eq.${parkId},building_id.in.(${buildingIdsInPark.join(",")})`);
+    } else {
+      query = query.eq("technology_park_id", parkId);
+    }
   }
 
   if (status === "active") query = query.eq("is_active", true);
