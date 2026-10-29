@@ -153,7 +153,24 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const rawParksElec = data?.parksDailyElec || [];
   const rawParksWater = data?.parksWaterData || [];
   const rawParksSolar = data?.parksSolarData || [];
-  const rawParksKiosks = data?.parksKiosksData || data?.kiosksData || [];
+  
+  // تجهيز الأكشاك وتوزيعها على المناطق بناءً على البيانات القادمة أو استخدام المناطق الكهربائية كمرجع أساسي
+  const rawParksKiosks = useMemo(() => {
+    if (data?.parksKiosksData && data.parksKiosksData.length > 0) {
+      return data.parksKiosksData;
+    }
+    if (data?.kiosksData && data.kiosksData.length > 0) {
+      return data.kiosksData;
+    }
+    // إذا لم تكن الأكشاك مقسمة بالمناطق في الـ data، نقوم بتوزيع الأكشاك المتاحة أو بناء الهيكل من rawParksElec
+    return (rawParksElec || []).map((park: any) => ({
+      ...park,
+      kiosks: (park.meters || []).filter((m: any) => {
+        const cat = String(m.category || "").trim().toUpperCase();
+        return cat === "KIOSK" || cat.includes("KIOSK");
+      })
+    }));
+  }, [data, rawParksElec]);
 
   const currentRawParks = 
     activeTab === "electric" ? rawParksElec : 
@@ -269,7 +286,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           if (kioskReadings) {
             setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(kioskReadings));
           } else {
-            // Fallback to electric_readings if kiosk readings table uses meter_id
             const { data: elecKioskReadings } = await supabase.from("electric_readings").select("*").in("meter_id", kioskIds);
             if (elecKioskReadings) {
               setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecKioskReadings));
@@ -976,7 +992,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         .in(meterIdField, targetMeterIds);
 
       if (error && activeTab === "kiosks") {
-        // Fallback to electric_readings for kiosks if kiosk_readings doesn't exist
         const res = await supabase.from("electric_readings").select("*").in("meter_id", targetMeterIds);
         fetchedReadings = res.data;
         error = res.error;
