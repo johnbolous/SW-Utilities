@@ -9,6 +9,18 @@ interface SolarInverterRecord {
   inverter_no: number;
   label_en: string;
   meter_code: string;
+  buildings?: { technology_park_id: string | null } | null;
+}
+
+interface BuildingItem {
+  id: string;
+  name_en: string;
+  technology_park_id: string | null;
+}
+
+interface ParkItem {
+  id: string;
+  name: string;
 }
 
 export function SolarInverterForm({
@@ -21,7 +33,10 @@ export function SolarInverterForm({
   onCancel: () => void;
 }) {
   const isEdit = !!record;
-  const [buildings, setBuildings] = useState<{ id: string; name_en: string }[]>([]);
+  const [parks, setParks] = useState<ParkItem[]>([]);
+  const [buildings, setBuildings] = useState<BuildingItem[]>([]);
+  
+  const [selectedParkId, setSelectedParkId] = useState("");
   const [buildingId, setBuildingId] = useState(record?.building_id ?? "");
   const [inverterNo, setInverterNo] = useState(String(record?.inverter_no ?? 1));
   const [labelEn, setLabelEn] = useState(record?.label_en ?? "");
@@ -30,14 +45,47 @@ export function SolarInverterForm({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/admin/buildings?pageSize=100")
-      .then((res) => res.json())
-      .then((body) => {
-        setBuildings(body.buildings ?? []);
-        if (!buildingId && body.buildings?.length) setBuildingId(body.buildings[0].id);
+    // جلب المناطق والمباني عند فتح النموذج
+    Promise.all([
+      fetch("/api/admin/parks?pageSize=100").then((res) => res.json()),
+      fetch("/api/admin/buildings?pageSize=100").then((res) => res.json()),
+    ])
+      .then(([parksData, buildingsData]) => {
+        const fetchedParks = parksData.parks ?? [];
+        const fetchedBuildings = buildingsData.buildings ?? [];
+        
+        setParks(fetchedParks);
+        setBuildings(fetchedBuildings);
+
+        if (isEdit && record?.building_id) {
+          // إذا كنت في وضع التعديل، حدد المنطقة التابع لها المبنى الحالي تلقائياً
+          const currentBuilding = fetchedBuildings.find((b: BuildingItem) => b.id === record.building_id);
+          if (currentBuilding?.technology_park_id) {
+            setSelectedParkId(currentBuilding.technology_park_id);
+          }
+        } else if (fetchedParks.length === 1) {
+          setSelectedParkId(fetchedParks[0].id);
+        }
+      })
+      .catch(() => {
+        setError("Failed to load form options.");
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isEdit, record]);
+
+  // فلترة المباني بناءً على المنطقة المحددة
+  const filteredBuildings = selectedParkId
+    ? buildings.filter((b) => b.technology_park_id === selectedParkId)
+    : buildings;
+
+  useEffect(() => {
+    // إذا تغيرت المنطقة ولم يعد المبنى الحالي ضمن القائمة المفلترة، قم بتفريغه
+    if (selectedParkId && buildingId) {
+      const isValid = filteredBuildings.some((b) => b.id === buildingId);
+      if (!isValid) {
+        setBuildingId("");
+      }
+    }
+  }, [selectedParkId, buildingId, filteredBuildings]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -73,9 +121,31 @@ export function SolarInverterForm({
 
       {!isEdit && (
         <>
+          {parks.length > 1 && (
+            <>
+              <FieldLabel>Technology Park</FieldLabel>
+              <Select
+                value={selectedParkId}
+                onChange={(e) => setSelectedParkId(e.target.value)}
+                className="mb-3"
+              >
+                <option value="">Select park...</option>
+                {parks.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </Select>
+            </>
+          )}
+
           <FieldLabel>Building</FieldLabel>
-          <Select value={buildingId} onChange={(e) => setBuildingId(e.target.value)} className="mb-3" required>
-            {buildings.map((b) => (
+          <Select
+            value={buildingId}
+            onChange={(e) => setBuildingId(e.target.value)}
+            className="mb-3"
+            required
+          >
+            <option value="">Select building...</option>
+            {filteredBuildings.map((b) => (
               <option key={b.id} value={b.id}>{b.name_en}</option>
             ))}
           </Select>
