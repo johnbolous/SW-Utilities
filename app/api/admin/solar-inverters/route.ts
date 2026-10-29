@@ -1,123 +1,98 @@
-"use client";
+import { NextResponse, type NextRequest } from "next/server";
+import { requireRole } from "@/lib/auth/requireRole";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { parsePagination } from "@/lib/admin/pagination";
+import { logAudit } from "@/lib/admin/audit";
+import type { Database } from "@/types/database";
 
-import { useEffect, useState } from "react";
-import { AdminListPage } from "@/components/admin/AdminListPage";
-import { Badge } from "@/components/ui/primitives";
-import { SolarInverterForm } from "./SolarInverterForm";
+export async function GET(request: NextRequest) {
+  const guard = await requireRole(["admin"]);
+  if (guard instanceof NextResponse) return guard;
 
-interface SolarInverterRow {
-  id: string;
-  building_id: string;
-  inverter_no: number;
-  label_en: string;
-  meter_code: string;
-  is_active: boolean;
-  buildings: { name_en: string; technology_park_id: string | null } | { name_en: string; technology_park_id: string | null }[] | null;
+  const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
+  const buildingId = request.nextUrl.searchParams.get("buildingId") ?? "";
+  const parkId = request.nextUrl.searchParams.get("parkId") ?? "";
+  const status = request.nextUrl.searchParams.get("status") ?? "";
+  const { page, pageSize, from, to } = parsePagination(request, 50);
+
+  const supabase = createAdminClient();
+
+  // جلب المباني التابعة للمنطقة في حال تم اختيار parkId ولم يتم اختيار buildingId محدد
+  let buildingIdsInPark: string[] = [];
+  if (parkId) {
+    const { data: parkBuildings } = await supabase
+      .from("buildings")
+      .select("id")
+      .eq("technology_park_id", parkId);
+    
+    buildingIdsInPark = (parkBuildings ?? []).map((b) => b.id);
+  }
+
+  let query = supabase.from("solar_inverters").select("*", { count: "exact" }).order("inverter_no");
+  
+  if (q) query = query.or(`label_en.ilike.%${q}%,meter_code.ilike.%${q}%`);
+  
+  if (buildingId) {
+    query = query.eq("building_id", buildingId);
+  } else if (parkId) {
+    if (buildingIdsInPark.length > 0) {
+      query = query.in("building_id", buildingIdsInPark);
+    } else {
+      // إذا لم توجد مباني في هذه المنطقة، نجعل الاستعلام يعيد نتيجة فارغة
+      query = query.in("building_id", ["00000000-0000-0000-0000-000000000000"]);
+    }
+  }
+
+  if (status === "active") query = query.eq("is_active", true);
+  if (status === "disabled") query = query.eq("is_active", false);
+
+  const { data, error, count } = await query.range(from, to);
+  if (error) return NextResponse.json({ error: "LOAD_FAILED", detail: error.message }, { status: 500 });
+
+  const inverters = data ?? [];
+  const buildingIds = Array.from(new Set(inverters.map((i) => i.building_id)));
+  const { data: buildingRows } = buildingIds.length
+    ? await supabase.from("buildings").select("id, name_en").in("id", buildingIds)
+    : { data: [] };
+  const nameById = new Map((buildingRows ?? []).map((b) => [b.id, b.name_en]));
+
+  const invertersWithBuilding = inverters.map((i) => ({ ...i, buildings: { name_en: nameById.get(i.building_id) ?? "—" } }));
+
+  return NextResponse.json({ solarInverters: invertersWithBuilding, total: count ?? 0, page, pageSize });
 }
 
-interface BuildingItem {
-  id: string;
-  name_en: string;
-  technology_park_id: string | null;
-}
+export async function POST(request: NextRequest) {
+  const guard = await requireRole(["admin"]);
+  if (guard instanceof NextResponse) return guard;
+  const admin = guard;
 
-function buildingName(row: SolarInverterRow): string {
-  const b = row.buildings;
-  if (!b) return "—";
-  return Array.isArray(b) ? b[0]?.name_en ?? "—" : b.name_en;
-}
+  const body = await request.json().catch(() => null);
+  if (!body) return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
 
-export function SolarInvertersPageContent() {
-  const [parkOptions, setParkOptions] = useState<{ value: string; label: string }[]>([]);
-  const [allBuildings, setAllBuildings] = useState<BuildingItem[]>([]);
-  const [selectedParkId, setSelectedParkId] = useState("");
-  const [selectedBuildingId, setSelectedBuildingId] = useState("");
+  const buildingId = typeof body.buildingId === "string" ? body.buildingId : "";
+  const inverterNo = Number(body.inverterNo);
+  const labelEn = (body.labelEn ?? "").trim();
+  const meterCode = (body.meterCode ?? "").trim().toUpperCase();
 
-  useEffect(() => {
-    fetch("/api/admin/parks?pageSize=100")
-      .then((res) => res.json())
-      .then((body) =>
-        setParkOptions((body.parks ?? []).map((p: any) => ({ value: p.id, label: p.name })))
-      );
+  if (!buildingId) return NextResponse.json({ error: "MISSING_BUILDING" }, { status: 400 });
+  if (!Number.isFinite(inverterNo) || inverterNo < 1) return NextResponse.json({ error: "INVALID_INVERTER_NO" }, { status: 400 });
+  if (!labelEn) return NextResponse.json({ error: "MISSING_LABEL" }, { status: 400 });
+  if (!meterCode) return NextResponse.json({ error: "MISSING_METER_CODE" }, { status: 400 });
 
-    fetch("/api/admin/buildings?pageSize=100")
-      .then((res) => res.json())
-      .then((body) => setAllBuildings(body.buildings ?? []));
-  }, []);
-
-  const handleParkChange = (parkId: string) => {
-    setSelectedParkId(parkId);
-    setSelectedBuildingId(""); // إعادة تعيين المبنى عند تغيير المنطقة لتجنب تضارب الفلاتر
+  const supabase = createAdminClient();
+  const insertRow: Database["public"]["Tables"]["solar_inverters"]["Insert"] = {
+    building_id: buildingId,
+    inverter_no: inverterNo,
+    label_en: labelEn,
+    meter_code: meterCode,
   };
+  const { data, error } = await supabase.from("solar_inverters").insert(insertRow).select().single();
 
-  const filteredBuildings = selectedParkId
-    ? allBuildings.filter((b) => b.technology_park_id === selectedParkId)
-    : allBuildings;
+  if (error) {
+    if (error.code === "23505") return NextResponse.json({ error: "DUPLICATE_INVERTER" }, { status: 409 });
+    return NextResponse.json({ error: "INSERT_FAILED", detail: error.message }, { status: 500 });
+  }
 
-  const buildingOptions = filteredBuildings.map((b) => ({
-    value: b.id,
-    label: b.name_en,
-  }));
-
-  return (
-    <AdminListPage<SolarInverterRow>
-      title="Solar Inverters"
-      apiBase="/api/admin/solar-inverters"
-      listKey="solarInverters"
-      getId={(r) => r.id}
-      getStatus={(r) => r.is_active}
-      statusFieldLabel="inverter"
-      searchPlaceholder="Search by label or meter code…"
-      newLabel="+ New inverter"
-      deleteLabel="inverter"
-      onDelete={async (row) => {
-        try {
-          const res = await fetch(`/api/admin/solar-inverters/${row.id}`, {
-            method: "DELETE",
-          });
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            return { ok: false, error: body.detail || body.error || "DELETE_FAILED" };
-          }
-          return { ok: true };
-        } catch (err: any) {
-          return { ok: false, error: err.message };
-        }
-      }}
-      filters={[
-        {
-          key: "parkId",
-          label: "All Parks",
-          options: parkOptions,
-          value: selectedParkId,
-          onChange: handleParkChange,
-        },
-        {
-          key: "buildingId",
-          label: "All Buildings",
-          options: buildingOptions,
-          value: selectedBuildingId,
-          onChange: setSelectedBuildingId,
-        },
-      ]}
-      columns={[
-        { key: "label_en", label: "Label" },
-        { key: "inverter_no", label: "Inverter #" },
-        { key: "meter_code", label: "Meter Code" },
-        { key: "buildings", label: "Building", render: buildingName },
-        {
-          key: "is_active",
-          label: "Status",
-          render: (r) => (
-            <Badge tone={r.is_active ? "success" : "danger"}>
-              {r.is_active ? "Active" : "Disabled"}
-            </Badge>
-          ),
-        },
-      ]}
-      renderForm={({ record, onDone, onCancel }) => (
-        <SolarInverterForm record={record} onDone={onDone} onCancel={onCancel} />
-      )}
-    />
-  );
+  await logAudit(supabase, { actorId: admin.id, action: "solar_inverter_created", tableName: "solar_inverters", recordId: data.id, newValue: data });
+  return NextResponse.json({ solarInverter: data }, { status: 201 });
 }
