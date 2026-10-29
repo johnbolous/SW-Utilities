@@ -88,7 +88,7 @@ function calculateMonthlyConsumptionsForAllMeters(readings: any[]) {
   const meterReadingsMap = new Map<string, any[]>();
   
   readings.forEach(r => {
-    const mId = r.meter_id || r.water_meter_id || r.inverter_id;
+    const mId = r.meter_id || r.water_meter_id || r.inverter_id || r.kiosk_id;
     if (!mId) return;
     if (!meterReadingsMap.has(mId)) {
       meterReadingsMap.set(mId, []);
@@ -146,15 +146,20 @@ function calculateSolarConsumptionsForAllInverters(readings: any[]) {
 }
 
 export default function DeskDashboardContent({ data }: { data: any }) {
-  const [activeTab, setActiveTab] = useState<"electric" | "water" | "solar">("electric");
+  const [activeTab, setActiveTab] = useState<"electric" | "water" | "solar" | "kiosks">("electric");
 
   const parkNames = data?.parkNames || [];
   const summary = data?.summary || {};
   const rawParksElec = data?.parksDailyElec || [];
   const rawParksWater = data?.parksWaterData || [];
   const rawParksSolar = data?.parksSolarData || [];
+  const rawParksKiosks = data?.parksKiosksData || data?.kiosksData || [];
 
-  const currentRawParks = activeTab === "electric" ? rawParksElec : activeTab === "water" ? rawParksWater : rawParksSolar;
+  const currentRawParks = 
+    activeTab === "electric" ? rawParksElec : 
+    activeTab === "water" ? rawParksWater : 
+    activeTab === "solar" ? rawParksSolar : 
+    rawParksKiosks;
 
   const [selectedCategory, setSelectedCategory] = useState("MEDIUM");
   
@@ -178,6 +183,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
   const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
   const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
 
   useEffect(() => {
     if (currentRawParks && currentRawParks.length > 0) {
@@ -252,15 +258,33 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             setSolarMonthlyConsumptions(calculateSolarConsumptionsForAllInverters(solarReadings));
           }
         }
+
+        // Kiosks readings
+        const kioskIds: string[] = [];
+        rawParksKiosks.forEach((park: any) => {
+          (park.kiosks || park.meters || []).forEach((k: any) => { if (k.id) kioskIds.push(k.id); });
+        });
+        if (kioskIds.length > 0) {
+          const { data: kioskReadings } = await supabase.from("kiosk_readings").select("*").in("kiosk_id", kioskIds);
+          if (kioskReadings) {
+            setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(kioskReadings));
+          } else {
+            // Fallback to electric_readings if kiosk readings table uses meter_id
+            const { data: elecKioskReadings } = await supabase.from("electric_readings").select("*").in("meter_id", kioskIds);
+            if (elecKioskReadings) {
+              setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecKioskReadings));
+            }
+          }
+        }
       } catch (err) {
         console.error("Error fetching readings for calculations:", err);
       }
     };
 
-    if (rawParksElec.length > 0 || rawParksWater.length > 0 || rawParksSolar.length > 0) {
+    if (rawParksElec.length > 0 || rawParksWater.length > 0 || rawParksSolar.length > 0 || rawParksKiosks.length > 0) {
       fetchAllReadingsForCalculations();
     }
-  }, [rawParksElec, rawParksWater, rawParksSolar]);
+  }, [rawParksElec, rawParksWater, rawParksSolar, rawParksKiosks]);
 
   const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") => {
     setDemandTimeFrame(frame);
@@ -407,7 +431,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         folderCategory = "water";
       } else if (cat.includes("low") || cat === "low") {
         folderCategory = "low";
-      } else if (cat.includes("kiosk")) {
+      } else if (activeTab === "kiosks" || cat.includes("kiosk")) {
         folderCategory = "kiosk";
       } else {
         folderCategory = "medium";
@@ -841,6 +865,29 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       });
   }, [rawParksSolar, selectedParkIds, solarMonthlyConsumptions, currentMonthKey]);
 
+  const processedKiosksData = useMemo(() => {
+    return rawParksKiosks
+      .filter((park: any) => selectedParkIds.includes(park.id))
+      .map((park: any) => {
+        const kiosksList = park.kiosks || park.meters || [];
+        const kiosksDaily = kiosksList.reduce((sum: number, k: any) => sum + Number(k.consumption || 0), 0);
+        const kiosksTotal = kiosksList.reduce((sum: number, k: any) => {
+          const kioskMap = kioskMonthlyConsumptions.get(k.id);
+          const monthlyVal = kioskMap ? (kioskMap[currentMonthKey] ?? 0) : Number(k.totalConsumption || 0);
+          return sum + monthlyVal;
+        }, 0);
+
+        return {
+          ...park,
+          kiosks: kiosksList,
+          kiosksDaily,
+          kiosksTotal,
+          activeCount: kiosksList.filter((k: any) => Number(k.consumption || 0) > 0).length,
+          totalCount: kiosksList.length,
+        };
+      });
+  }, [rawParksKiosks, selectedParkIds, kioskMonthlyConsumptions, currentMonthKey]);
+
   const currentItemsList = useMemo(() => {
     let list: any[] = [];
     if (activeTab === "electric") {
@@ -858,12 +905,18 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     } else if (activeTab === "solar") {
       processedSolarData.forEach((park: any) => {
         park.inverters.forEach((i: any) => {
-          list.push({ id: i.id, name: `${park.name} - ${getDeviceName(i)} (${getDeviceCode(i)})` });
+          list.push({ id: i.id, name: `${park.name} - ${getDeviceName(i)}` });
+        });
+      });
+    } else if (activeTab === "kiosks") {
+      processedKiosksData.forEach((park: any) => {
+        park.kiosks.forEach((k: any) => {
+          list.push({ id: k.id, name: `${park.name} - ${getDeviceName(k)} (${getDeviceCode(k)})` });
         });
       });
     }
     return list;
-  }, [activeTab, processedElecData, processedWaterData, processedSolarData]);
+  }, [activeTab, processedElecData, processedWaterData, processedSolarData, processedKiosksData]);
 
   const getDatesInRange = (startDate: string, endDate: string) => {
     const dates = [];
@@ -902,6 +955,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       } else if (activeTab === "solar") {
         tableName = "solar_production";
         meterIdField = "inverter_id";
+      } else if (activeTab === "kiosks") {
+        tableName = "kiosk_readings";
+        meterIdField = "kiosk_id";
       }
 
       const targetMeterIds = selectedMeterIdsForExport.length > 0 
@@ -914,10 +970,17 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         return;
       }
 
-      const { data: fetchedReadings, error } = await supabase
+      let { data: fetchedReadings, error } = await supabase
         .from(tableName)
         .select(`*`)
         .in(meterIdField, targetMeterIds);
+
+      if (error && activeTab === "kiosks") {
+        // Fallback to electric_readings for kiosks if kiosk_readings doesn't exist
+        const res = await supabase.from("electric_readings").select("*").in("meter_id", targetMeterIds);
+        fetchedReadings = res.data;
+        error = res.error;
+      }
 
       if (error) {
         alert(`خطأ من الداتا بيز: ${error.message || JSON.stringify(error)}`);
@@ -928,7 +991,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       const readingsMap = new Map();
       if (fetchedReadings) {
         fetchedReadings.forEach((row: any) => {
-          const mId = row[meterIdField];
+          const mId = row[meterIdField] || row.meter_id;
           const rawDate = row.reading_date || row.timestamp || row.created_at || row.date;
           if (!rawDate) return;
           const dStr = getLocalDateStr(rawDate);
@@ -936,7 +999,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           if (dStr < exportStartDate || dStr > exportEndDate) return;
 
           let val = null;
-          if (activeTab === "electric" || activeTab === "water") {
+          if (activeTab === "electric" || activeTab === "water" || activeTab === "kiosks") {
             val = row.current_value ?? row.reading ?? row.reading_value ?? row.consumption ?? null;
           } else if (activeTab === "solar") {
             val = row.value ?? row.yield ?? null;
@@ -952,9 +1015,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
       const dateRange = getDatesInRange(exportStartDate, exportEndDate);
 
-      const processCsvRows = (items: any[], isSolar = false) => {
+      const processCsvRows = (items: any[], isSolar = false, isKiosk = false) => {
         items.forEach((park: any) => {
-          const entityList = isSolar ? park.inverters : (park.electricMeters || park.meters || []);
+          const entityList = isSolar ? park.inverters : (isKiosk ? park.kiosks : (park.electricMeters || park.meters || []));
           entityList.forEach((item: any) => {
             const itemId = item.id;
             if (targetMeterIds.includes(itemId)) {
@@ -986,6 +1049,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         processCsvRows(processedWaterData);
       } else if (activeTab === "solar") {
         processCsvRows(processedSolarData, true);
+      } else if (activeTab === "kiosks") {
+        processCsvRows(processedKiosksData, false, true);
       }
 
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -1429,6 +1494,12 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         >
           ☀️ الطاقة الشمسية (Solar Energy)
         </button>
+        <button
+          onClick={() => { setActiveTab("kiosks"); setSelectedParkIds(rawParksKiosks.map((p: any) => p.id)); setSelectedMeterIdsForExport([]); }}
+          className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "kiosks" ? 'bg-amber-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}
+        >
+          🏪 الأكشاك (Kiosks)
+        </button>
       </div>
 
       <div className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 flex flex-col md:flex-row gap-4 justify-between items-center">
@@ -1765,10 +1836,56 @@ export default function DeskDashboardContent({ data }: { data: any }) {
               <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
                 {park.inverters.map((i: any) => (
                   <div key={i.id} className="flex-1 flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
-                    <span className="font-medium text-gray-700">{getDeviceName(i)} ({getDeviceCode(i)})</span>
+                    <span className="font-medium text-gray-700">{getDeviceName(i)}</span>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-emerald-600">{Math.round(Number(i.yield || 0)).toLocaleString()} kWh</span>
                       <span className={`w-2 h-2 rounded-full ${Number(i.yield || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeTab === "kiosks" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {processedKiosksData.map((park: any) => (
+            <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="font-bold text-lg text-gray-800">{park.name}</h3>
+                <span className="text-xs bg-amber-50 text-amber-600 px-2.5 py-1 rounded-lg font-bold">
+                  {park.activeCount} / {park.totalCount} كشك
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                <div className="bg-gray-50 p-2.5 rounded-xl">
+                  <span className="text-gray-500 block mb-0.5">الاستهلاك اليومي</span>
+                  <span className="font-bold text-gray-800">{Math.round(park.kiosksDaily || 0).toLocaleString()} kWh</span>
+                </div>
+                <div className="bg-gray-50 p-2.5 rounded-xl">
+                  <span className="text-gray-500 block mb-0.5">إجمالي الشهر</span>
+                  <span className="font-bold text-gray-800">{Math.round(park.kiosksTotal || 0).toLocaleString()} kWh</span>
+                </div>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                {park.kiosks.map((k: any) => (
+                  <div key={k.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
+                    <span className="font-medium text-gray-700">{getDeviceName(k)} ({getDeviceCode(k)})</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openPhotoModal(k);
+                        }}
+                        className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                        title="استعراض صورة الكشك الشهرية"
+                      >
+                        <span>📷</span> صور العداد
+                      </button>
+                      <span className="font-bold text-amber-600">{Math.round(Number(k.consumption || 0)).toLocaleString()} kWh</span>
+                      <span className={`w-2 h-2 rounded-full ${Number(k.consumption || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
                     </div>
                   </div>
                 ))}
