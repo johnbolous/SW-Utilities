@@ -12,7 +12,7 @@ interface SolarInverterRow {
   label_en: string;
   meter_code: string;
   is_active: boolean;
-  buildings: { name_en: string } | { name_en: string }[] | null;
+  buildings: { name_en: string; technology_park_id: string | null } | { name_en: string; technology_park_id: string | null }[] | null;
 }
 
 interface BuildingItem {
@@ -47,14 +47,7 @@ export function SolarInvertersPageContent() {
 
   const handleParkChange = (parkId: string) => {
     setSelectedParkId(parkId);
-    if (parkId) {
-      const isStillValid = allBuildings.some(
-        (b) => b.id === selectedBuildingId && b.technology_park_id === parkId
-      );
-      if (!isStillValid) {
-        setSelectedBuildingId("");
-      }
-    }
+    setSelectedBuildingId(""); // إعادة تعيين المبنى عند تغيير المنطقة لتجنب تضارب الفلاتر
   };
 
   const filteredBuildings = selectedParkId
@@ -76,6 +69,21 @@ export function SolarInvertersPageContent() {
       statusFieldLabel="inverter"
       searchPlaceholder="Search by label or meter code…"
       newLabel="+ New inverter"
+      deleteLabel="inverter"
+      onDelete={async (row) => {
+        try {
+          const res = await fetch(`/api/admin/solar-inverters/${row.id}`, {
+            method: "DELETE",
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            return { ok: false, error: body.detail || body.error || "DELETE_FAILED" };
+          }
+          return { ok: true };
+        } catch (err: any) {
+          return { ok: false, error: err.message };
+        }
+      }}
       filters={[
         {
           key: "parkId",
