@@ -153,24 +153,22 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const rawParksElec = data?.parksDailyElec || [];
   const rawParksWater = data?.parksWaterData || [];
   const rawParksSolar = data?.parksSolarData || [];
-  
-  // تجهيز الأكشاك وتوزيعها على المناطق بناءً على البيانات القادمة أو استخدام المناطق الكهربائية كمرجع أساسي
+
+  // بيانات الأكشاك من الداتا بيز
+  const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
+  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+
+  // ربط الأكشاك بمناطقها عبر park_id بناءً على هيكل جدول kiosks
   const rawParksKiosks = useMemo(() => {
-    if (data?.parksKiosksData && data.parksKiosksData.length > 0) {
-      return data.parksKiosksData;
-    }
-    if (data?.kiosksData && data.kiosksData.length > 0) {
-      return data.kiosksData;
-    }
-    // إذا لم تكن الأكشاك مقسمة بالمناطق في الـ data، نقوم بتوزيع الأكشاك المتاحة أو بناء الهيكل من rawParksElec
-    return (rawParksElec || []).map((park: any) => ({
-      ...park,
-      kiosks: (park.meters || []).filter((m: any) => {
-        const cat = String(m.category || "").trim().toUpperCase();
-        return cat === "KIOSK" || cat.includes("KIOSK");
-      })
-    }));
-  }, [data, rawParksElec]);
+    return rawParksElec.map((park: any) => {
+      const parkId = park.id;
+      const parkKiosks = kiosksTableData.filter(k => String(k.park_id) === String(parkId));
+      return {
+        ...park,
+        kiosks: parkKiosks
+      };
+    });
+  }, [rawParksElec, kiosksTableData]);
 
   const currentRawParks = 
     activeTab === "electric" ? rawParksElec : 
@@ -200,7 +198,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
   const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
   const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
-  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
 
   useEffect(() => {
     if (currentRawParks && currentRawParks.length > 0) {
@@ -228,7 +225,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [consumptionChartData, setConsumptionChartData] = useState<any[]>([]);
   const [isConsumptionLoading, setIsConsumptionLoading] = useState(false);
 
-  // Fetch readings for monthly delta / sum calculations
+  // Fetch readings for monthly delta / sum calculations including kiosks
   useEffect(() => {
     const fetchAllReadingsForCalculations = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -240,6 +237,31 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       try {
+        // Kiosks & Kiosk Readings
+        const { data: kiosksRows } = await supabase.from("kiosks").select("*");
+        if (kiosksRows) {
+          setKiosksTableData(kiosksRows);
+          const kioskIds = kiosksRows.map(k => k.id);
+          if (kioskIds.length > 0) {
+            const { data: kioskReadings } = await supabase.from("kiosk_readings").select("*").in("kiosk_id", kioskIds);
+            if (kioskReadings) {
+              const readingsMap = new Map();
+              kioskReadings.forEach(r => {
+                const kId = r.kiosk_id;
+                const consumptionVal = Number(r.consumption ?? (r.current_value - r.previous_value) ?? 0);
+                if (!readingsMap.has(kId) || new Date(r.reading_date).getTime() > new Date(readingsMap.get(kId).reading_date).getTime()) {
+                  readingsMap.set(kId, { consumption: consumptionVal, reading_date: r.reading_date });
+                }
+              });
+              kiosksRows.forEach(k => {
+                const latest = readingsMap.get(k.id);
+                k.consumption = latest ? latest.consumption : 0;
+              });
+              setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(kioskReadings));
+            }
+          }
+        }
+
         // Electric readings
         const elecMeterIds: string[] = [];
         rawParksElec.forEach((park: any) => {
@@ -275,32 +297,15 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             setSolarMonthlyConsumptions(calculateSolarConsumptionsForAllInverters(solarReadings));
           }
         }
-
-        // Kiosks readings
-        const kioskIds: string[] = [];
-        rawParksKiosks.forEach((park: any) => {
-          (park.kiosks || park.meters || []).forEach((k: any) => { if (k.id) kioskIds.push(k.id); });
-        });
-        if (kioskIds.length > 0) {
-          const { data: kioskReadings } = await supabase.from("kiosk_readings").select("*").in("kiosk_id", kioskIds);
-          if (kioskReadings) {
-            setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(kioskReadings));
-          } else {
-            const { data: elecKioskReadings } = await supabase.from("electric_readings").select("*").in("meter_id", kioskIds);
-            if (elecKioskReadings) {
-              setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecKioskReadings));
-            }
-          }
-        }
       } catch (err) {
         console.error("Error fetching readings for calculations:", err);
       }
     };
 
-    if (rawParksElec.length > 0 || rawParksWater.length > 0 || rawParksSolar.length > 0 || rawParksKiosks.length > 0) {
+    if (rawParksElec.length > 0 || rawParksWater.length > 0 || rawParksSolar.length > 0) {
       fetchAllReadingsForCalculations();
     }
-  }, [rawParksElec, rawParksWater, rawParksSolar, rawParksKiosks]);
+  }, [rawParksElec, rawParksWater, rawParksSolar]);
 
   const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") => {
     setDemandTimeFrame(frame);
@@ -866,7 +871,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         
         const solarTotal = inverters.reduce((sum: number, i: any) => {
           const invMap = solarMonthlyConsumptions.get(i.id);
-          const monthlyVal = invMap ? (invMap[currentMonthKey] ?? 0) : Number(i.totalYield || 0);
+          const monthlyVal = invMap ? (invMap[currentMonthKey] ?? 0) : Number(inv.totalYield || 0);
           return sum + monthlyVal;
         }, 0);
 
@@ -885,7 +890,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return rawParksKiosks
       .filter((park: any) => selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const kiosksList = park.kiosks || park.meters || [];
+        const kiosksList = park.kiosks || [];
         const kiosksDaily = kiosksList.reduce((sum: number, k: any) => sum + Number(k.consumption || 0), 0);
         const kiosksTotal = kiosksList.reduce((sum: number, k: any) => {
           const kioskMap = kioskMonthlyConsumptions.get(k.id);
@@ -986,16 +991,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         return;
       }
 
-      let { data: fetchedReadings, error } = await supabase
+      const { data: fetchedReadings, error } = await supabase
         .from(tableName)
         .select(`*`)
         .in(meterIdField, targetMeterIds);
-
-      if (error && activeTab === "kiosks") {
-        const res = await supabase.from("electric_readings").select("*").in("meter_id", targetMeterIds);
-        fetchedReadings = res.data;
-        error = res.error;
-      }
 
       if (error) {
         alert(`خطأ من الداتا بيز: ${error.message || JSON.stringify(error)}`);
@@ -1006,7 +1005,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       const readingsMap = new Map();
       if (fetchedReadings) {
         fetchedReadings.forEach((row: any) => {
-          const mId = row[meterIdField] || row.meter_id;
+          const mId = row[meterIdField];
           const rawDate = row.reading_date || row.timestamp || row.created_at || row.date;
           if (!rawDate) return;
           const dStr = getLocalDateStr(rawDate);
@@ -1885,25 +1884,29 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                 </div>
               </div>
               <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
-                {park.kiosks.map((k: any) => (
-                  <div key={k.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
-                    <span className="font-medium text-gray-700">{getDeviceName(k)} ({getDeviceCode(k)})</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openPhotoModal(k);
-                        }}
-                        className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
-                        title="استعراض صورة الكشك الشهرية"
-                      >
-                        <span>📷</span> صور العداد
-                      </button>
-                      <span className="font-bold text-amber-600">{Math.round(Number(k.consumption || 0)).toLocaleString()} kWh</span>
-                      <span className={`w-2 h-2 rounded-full ${Number(k.consumption || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
+                {park.kiosks && park.kiosks.length > 0 ? (
+                  park.kiosks.map((k: any) => (
+                    <div key={k.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
+                      <span className="font-medium text-gray-700">{getDeviceName(k)} ({getDeviceCode(k)})</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openPhotoModal(k);
+                          }}
+                          className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                          title="استعراض صورة الكشك الشهرية"
+                        >
+                          <span>📷</span> صور العداد
+                        </button>
+                        <span className="font-bold text-amber-600">{Math.round(Number(k.consumption || 0)).toLocaleString()} kWh</span>
+                        <span className={`w-2 h-2 rounded-full ${Number(k.consumption || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <div className="text-center py-4 text-xs text-gray-400">لا توجد أكشاك مسجلة في هذه المنطقة</div>
+                )}
               </div>
             </div>
           ))}
