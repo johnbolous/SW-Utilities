@@ -9,7 +9,6 @@ interface SolarInverterRecord {
   inverter_no: number;
   label_en: string;
   meter_code: string;
-  buildings?: { technology_park_id: string | null } | null;
 }
 
 interface BuildingItem {
@@ -45,7 +44,6 @@ export function SolarInverterForm({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // جلب المناطق والمباني عند فتح النموذج
     Promise.all([
       fetch("/api/admin/parks?pageSize=100").then((res) => res.json()),
       fetch("/api/admin/buildings?pageSize=100").then((res) => res.json()),
@@ -58,12 +56,12 @@ export function SolarInverterForm({
         setBuildings(fetchedBuildings);
 
         if (isEdit && record?.building_id) {
-          // إذا كنت في وضع التعديل، حدد المنطقة التابع لها المبنى الحالي تلقائياً
           const currentBuilding = fetchedBuildings.find((b: BuildingItem) => b.id === record.building_id);
           if (currentBuilding?.technology_park_id) {
             setSelectedParkId(currentBuilding.technology_park_id);
           }
-        } else if (fetchedParks.length === 1) {
+        } else if (fetchedParks.length > 0) {
+          // تحديد أول منطقة افتراضياً لتظهر المباني مباشرة
           setSelectedParkId(fetchedParks[0].id);
         }
       })
@@ -72,13 +70,11 @@ export function SolarInverterForm({
       });
   }, [isEdit, record]);
 
-  // فلترة المباني بناءً على المنطقة المحددة
   const filteredBuildings = selectedParkId
     ? buildings.filter((b) => b.technology_park_id === selectedParkId)
     : buildings;
 
   useEffect(() => {
-    // إذا تغيرت المنطقة ولم يعد المبنى الحالي ضمن القائمة المفلترة، قم بتفريغه
     if (selectedParkId && buildingId) {
       const isValid = filteredBuildings.some((b) => b.id === buildingId);
       if (!isValid) {
@@ -121,21 +117,18 @@ export function SolarInverterForm({
 
       {!isEdit && (
         <>
-          {parks.length > 1 && (
-            <>
-              <FieldLabel>Technology Park</FieldLabel>
-              <Select
-                value={selectedParkId}
-                onChange={(e) => setSelectedParkId(e.target.value)}
-                className="mb-3"
-              >
-                <option value="">Select park...</option>
-                {parks.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </Select>
-            </>
-          )}
+          <FieldLabel>Technology Park</FieldLabel>
+          <Select
+            value={selectedParkId}
+            onChange={(e) => setSelectedParkId(e.target.value)}
+            className="mb-3"
+            required
+          >
+            <option value="">Select park...</option>
+            {parks.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </Select>
 
           <FieldLabel>Building</FieldLabel>
           <Select
