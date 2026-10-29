@@ -15,7 +15,7 @@ import {
 
 // دالة ذكية لحساب الاستهلاك الشهري للعدادات التراكمية مع التعامل مع الشهور الفارغة بدون دمج
 function calculateMonthlyConsumption(readings: any[]) {
-  if (!readings || readings.length === 0) return {};
+  if (!readings || !Array.isArray(readings) || readings.length === 0) return {};
 
   const sortedReadings = [...readings].sort((a, b) => {
     const dateA = new Date(a?.reading_date || a?.timestamp || a?.created_at || a?.date || 0);
@@ -84,13 +84,13 @@ function calculateMonthlyConsumption(readings: any[]) {
   return monthlyResults;
 }
 
-function calculateMonthlyConsumptionsForAllMeters(readings: any[]) {
+function calculateMonthlyConsumptionsForAllMeters(readings: any[], idField = "meter_id") {
   const meterReadingsMap = new Map<string, any[]>();
   
   if (!readings || !Array.isArray(readings)) return meterReadingsMap;
 
   readings.forEach(r => {
-    const mId = r?.meter_id || r?.water_meter_id || r?.inverter_id || r?.kiosk_id;
+    const mId = r?.[idField] || r?.meter_id || r?.water_meter_id || r?.inverter_id || r?.kiosk_id;
     if (!mId) return;
     if (!meterReadingsMap.has(mId)) {
       meterReadingsMap.set(mId, []);
@@ -158,9 +158,63 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const rawParksWater = data?.parksWaterData || [];
   const rawParksSolar = data?.parksSolarData || [];
 
-  // بيانات الأكشاك من الداتا بيز
+  // بيانات الأكشاك من جدول kiosks في الداتا بيز
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
   const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+
+  // جلب الأكشاك وقراءاتها مباشرة باستخدام park_id المطابق لجدولك
+  useEffect(() => {
+    const fetchKiosksAndReadings = async () => {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+      const supabaseKey = 
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+
+      if (!supabaseUrl || !supabaseKey) return;
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      try {
+        const { data: kiosksRows, error: kiosksErr } = await supabase.from("kiosks").select("*");
+        if (kiosksErr) {
+          console.error("Error fetching kiosks:", kiosksErr);
+          return;
+        }
+
+        if (kiosksRows && kiosksRows.length > 0) {
+          const kioskIds = kiosksRows.map(k => k.id);
+          
+          const { data: kioskReadings, error: readingsErr } = await supabase
+            .from("kiosk_readings")
+            .select("*")
+            .in("kiosk_id", kioskIds);
+
+          if (!readingsErr && kioskReadings) {
+            const readingsMap = new Map();
+            kioskReadings.forEach(r => {
+              const kId = r.kiosk_id;
+              const consumptionVal = Number(r?.consumption ?? (Number(r?.current_value || 0) - Number(r?.previous_value || 0)) ?? 0);
+              if (!readingsMap.has(kId) || new Date(r?.reading_date || 0).getTime() > new Date(readingsMap.get(kId).reading_date || 0).getTime()) {
+                readingsMap.set(kId, { consumption: consumptionVal, reading_date: r?.reading_date });
+              }
+            });
+
+            kiosksRows.forEach(k => {
+              const latest = readingsMap.get(k.id);
+              k.consumption = latest ? latest.consumption : 0;
+            });
+
+            setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(kioskReadings, "kiosk_id"));
+          }
+
+          setKiosksTableData(kiosksRows);
+        }
+      } catch (err) {
+        console.error("Error in fetchKiosksAndReadings:", err);
+      }
+    };
+
+    fetchKiosksAndReadings();
+  }, []);
 
   // ربط الأكشاك بمناطقها عبر park_id بناءً على هيكل جدول kiosks
   const rawParksKiosks = useMemo(() => {
@@ -244,31 +298,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       try {
-        // Kiosks & Kiosk Readings
-        const { data: kiosksRows } = await supabase.from("kiosks").select("*");
-        if (kiosksRows) {
-          setKiosksTableData(kiosksRows);
-          const kioskIds = kiosksRows.map(k => k?.id).filter(Boolean);
-          if (kioskIds.length > 0) {
-            const { data: kioskReadings } = await supabase.from("kiosk_readings").select("*").in("kiosk_id", kioskIds);
-            if (kioskReadings) {
-              const readingsMap = new Map();
-              kioskReadings.forEach(r => {
-                const kId = r?.kiosk_id;
-                const consumptionVal = Number(r?.consumption ?? (Number(r?.current_value || 0) - Number(r?.previous_value || 0)) ?? 0);
-                if (!readingsMap.has(kId) || new Date(r?.reading_date || 0).getTime() > new Date(readingsMap.get(kId).reading_date || 0).getTime()) {
-                  readingsMap.set(kId, { consumption: consumptionVal, reading_date: r?.reading_date });
-                }
-              });
-              kiosksRows.forEach(k => {
-                const latest = readingsMap.get(k?.id);
-                k.consumption = latest ? latest.consumption : 0;
-              });
-              setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(kioskReadings));
-            }
-          }
-        }
-
         // Electric readings
         const elecMeterIds: string[] = [];
         if (Array.isArray(rawParksElec)) {
@@ -281,7 +310,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         if (elecMeterIds.length > 0) {
           const { data: elecReadings } = await supabase.from("electric_readings").select("*").in("meter_id", elecMeterIds);
           if (elecReadings) {
-            setMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecReadings));
+            setMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecReadings, "meter_id"));
           }
         }
 
@@ -297,7 +326,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         if (waterMeterIds.length > 0) {
           const { data: waterReadings } = await supabase.from("water_readings").select("*").in("water_meter_id", waterMeterIds);
           if (waterReadings) {
-            setWaterMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(waterReadings));
+            setWaterMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(waterReadings, "water_meter_id"));
           }
         }
 
@@ -1140,7 +1169,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
-      {/* الشريط العلوي مع تصميم الجرس الكهربائي المتطور */}
+      {/* الشريط العلوي مع نظام التنبيهات المنسدل */}
       <div className="bg-slate-100 p-4 rounded-lg flex justify-between items-center border relative" dir="rtl">
         <div>
           <span className="text-xs text-slate-500 font-bold uppercase tracking-wider block">
@@ -1151,7 +1180,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           </h1>
         </div>
 
-        {/* أيقونة جرس طاقة احترافية مع قائمة مقسمة لتسهيل القراءة */}
         <div className="relative">
           <button 
             onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
@@ -1166,7 +1194,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             )}
           </button>
 
-          {/* القائمة المنسدلة للتنبيهات والملاحظات */}
           {isNotificationsOpen && (
             <div className="absolute left-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden text-right" dir="rtl">
               <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center">
@@ -1314,30 +1341,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             </div>
             
             <div className="flex items-center bg-gray-100 p-1 rounded-xl gap-1 text-[10px] font-bold">
-              <button 
-                onClick={() => handleDemandTimeFrameChange("year")}
-                className={`px-2 py-1 rounded-lg transition-all ${demandTimeFrame === "year" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                سنة
-              </button>
-              <button 
-                onClick={() => handleDemandTimeFrameChange("month")}
-                className={`px-2 py-1 rounded-lg transition-all ${demandTimeFrame === "month" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                شهر
-              </button>
-              <button 
-                onClick={() => handleDemandTimeFrameChange("week")}
-                className={`px-2 py-1 rounded-lg transition-all ${demandTimeFrame === "week" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                أسبوع
-              </button>
-              <button 
-                onClick={() => handleDemandTimeFrameChange("day")}
-                className={`px-2 py-1 rounded-lg transition-all ${demandTimeFrame === "day" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                يوم
-              </button>
+              <button onClick={() => handleDemandTimeFrameChange("year")} className={`px-2 py-1 rounded-lg transition-all ${demandTimeFrame === "year" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>سنة</button>
+              <button onClick={() => handleDemandTimeFrameChange("month")} className={`px-2 py-1 rounded-lg transition-all ${demandTimeFrame === "month" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>شهر</button>
+              <button onClick={() => handleDemandTimeFrameChange("week")} className={`px-2 py-1 rounded-lg transition-all ${demandTimeFrame === "week" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>أسبوع</button>
+              <button onClick={() => handleDemandTimeFrameChange("day")} className={`px-2 py-1 rounded-lg transition-all ${demandTimeFrame === "day" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>يوم</button>
             </div>
           </div>
 
@@ -1358,17 +1365,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                   if (!park || !selectedParkIds.includes(park.id)) return null;
                   const color = parkColors[idx % parkColors.length];
                   return (
-                    <Line 
-                      key={park.id}
-                      type="monotone" 
-                      dataKey={park.id} 
-                      name={park.name}
-                      stroke={color} 
-                      strokeWidth={2} 
-                      dot={false}
-                      activeDot={{ r: 5 }}
-                      connectNulls
-                    />
+                    <Line key={park.id} type="monotone" dataKey={park.id} name={park.name} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 5 }} connectNulls />
                   );
                 })}
               </LineChart>
@@ -1384,30 +1381,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             </div>
 
             <div className="flex items-center bg-gray-100 p-1 rounded-xl gap-1 text-[10px] font-bold">
-              <button 
-                onClick={() => handleConsumptionTimeFrameChange("year")}
-                className={`px-2 py-1 rounded-lg transition-all ${consumptionTimeFrame === "year" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                سنة
-              </button>
-              <button 
-                onClick={() => handleConsumptionTimeFrameChange("month")}
-                className={`px-2 py-1 rounded-lg transition-all ${consumptionTimeFrame === "month" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                شهر
-              </button>
-              <button 
-                onClick={() => handleConsumptionTimeFrameChange("week")}
-                className={`px-2 py-1 rounded-lg transition-all ${consumptionTimeFrame === "week" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                أسبوع
-              </button>
-              <button 
-                onClick={() => handleConsumptionTimeFrameChange("day")}
-                className={`px-2 py-1 rounded-lg transition-all ${consumptionTimeFrame === "day" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-              >
-                يوم
-              </button>
+              <button onClick={() => handleConsumptionTimeFrameChange("year")} className={`px-2 py-1 rounded-lg transition-all ${consumptionTimeFrame === "year" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>سنة</button>
+              <button onClick={() => handleConsumptionTimeFrameChange("month")} className={`px-2 py-1 rounded-lg transition-all ${consumptionTimeFrame === "month" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>شهر</button>
+              <button onClick={() => handleConsumptionTimeFrameChange("week")} className={`px-2 py-1 rounded-lg transition-all ${consumptionTimeFrame === "week" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>أسبوع</button>
+              <button onClick={() => handleConsumptionTimeFrameChange("day")} className={`px-2 py-1 rounded-lg transition-all ${consumptionTimeFrame === "day" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>يوم</button>
             </div>
           </div>
 
@@ -1428,17 +1405,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                   if (!park || !selectedParkIds.includes(park.id)) return null;
                   const color = parkColors[idx % parkColors.length];
                   return (
-                    <Line 
-                      key={park.id}
-                      type="monotone" 
-                      dataKey={park.id} 
-                      name={park.name}
-                      stroke={color} 
-                      strokeWidth={2} 
-                      dot={false}
-                      activeDot={{ r: 5 }}
-                      connectNulls
-                    />
+                    <Line key={park.id} type="monotone" dataKey={park.id} name={park.name} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 5 }} connectNulls />
                   );
                 })}
               </LineChart>
@@ -1523,7 +1490,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       </div>
 
-      {/* أزرار التبويبات الرئيسية */}
+      {/* أزرار التبويبات الأربعة المتكاملة */}
       <div className="flex bg-gray-100 p-1.5 rounded-2xl gap-2 shadow-inner">
         <button
           onClick={() => { setActiveTab("electric"); setSelectedParkIds(rawParksElec.map((p: any) => p?.id).filter(Boolean)); setSelectedMeterIdsForExport([]); }}
@@ -1606,31 +1573,18 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-gray-600 mb-1">من تاريخ:</label>
-                <input 
-                  type="date" 
-                  value={exportStartDate}
-                  onChange={(e) => setExportStartDate(e.target.value)}
-                  className="w-full border p-2 rounded-xl text-xs bg-gray-50 outline-none"
-                />
+                <input type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} className="w-full border p-2 rounded-xl text-xs bg-gray-50 outline-none" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-600 mb-1">إلى تاريخ:</label>
-                <input 
-                  type="date" 
-                  value={exportEndDate}
-                  onChange={(e) => setExportEndDate(e.target.value)}
-                  className="w-full border p-2 rounded-xl text-xs bg-gray-50 outline-none"
-                />
+                <input type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} className="w-full border p-2 rounded-xl text-xs bg-gray-50 outline-none" />
               </div>
             </div>
 
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label className="block text-xs font-bold text-gray-600">اختر العناصر:</label>
-                <button 
-                  onClick={() => setSelectedMeterIdsForExport(currentItemsList.map(i => i.id))}
-                  className="text-[11px] text-blue-600 font-bold hover:underline"
-                >
+                <button onClick={() => setSelectedMeterIdsForExport(currentItemsList.map(i => i.id))} className="text-[11px] text-blue-600 font-bold hover:underline">
                   تحديد الكل
                 </button>
               </div>
@@ -1656,18 +1610,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t">
-              <button 
-                onClick={() => setIsExportModalOpen(false)} 
-                disabled={isExporting}
-                className="px-4 py-2 bg-gray-100 text-gray-700 text-xs font-bold rounded-xl"
-              >
-                إلغاء
-              </button>
-              <button 
-                onClick={handleCustomExport} 
-                disabled={isExporting}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow flex items-center gap-2"
-              >
+              <button onClick={() => setIsExportModalOpen(false)} disabled={isExporting} className="px-4 py-2 bg-gray-100 text-gray-700 text-xs font-bold rounded-xl">إلغاء</button>
+              <button onClick={handleCustomExport} disabled={isExporting} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow flex items-center gap-2">
                 {isExporting ? "جاري التصدير..." : "تحميل ملف الـ CSV"}
               </button>
             </div>
@@ -1675,7 +1619,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* Photo Viewer Modal */}
+      {/* نافذة صور العدادات */}
       {isPhotoModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl" dir="rtl">
@@ -1690,13 +1634,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             </div>
 
             {isLoadingPhotos ? (
-              <div className="py-12 text-center text-xs text-gray-500 font-bold">
-                جاري جلب الصور من خوادم التخزين...
-              </div>
+              <div className="py-12 text-center text-xs text-gray-500 font-bold">جاري جلب الصور من خوادم التخزين...</div>
             ) : meterPhotosList.length === 0 ? (
-              <div className="py-12 text-center text-xs text-gray-400">
-                لا توجد صور مخزنة حتى الآن.
-              </div>
+              <div className="py-12 text-center text-xs text-gray-400">لا توجد صور مخزنة حتى الآن.</div>
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 bg-gray-50 p-3 rounded-xl border">
@@ -1707,9 +1647,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                     className="border p-2 rounded-lg text-xs bg-white font-medium outline-none flex-1"
                   >
                     {Array.from(new Set(meterPhotosList.map(p => (p?.created_at || "").slice(0, 7)))).map((monthStr: any) => (
-                      <option key={monthStr} value={monthStr}>
-                        شهر {monthStr} (صورة العداد)
-                      </option>
+                      <option key={monthStr} value={monthStr}>شهر {monthStr} (صورة العداد)</option>
                     ))}
                   </select>
                 </div>
@@ -1720,48 +1658,32 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                       const pDate = p?.created_at || "";
                       return !selectedPhotoMonth || pDate.startsWith(selectedPhotoMonth);
                     })
-                    .map((photo: any, index: number) => {
-                      return (
-                        <div key={photo?.id || index} className="bg-gray-50 p-4 rounded-2xl border space-y-2">
-                          <div className="flex justify-between items-center text-xs text-gray-500">
-                            <span className="font-bold text-gray-700">التاريخ المستخرج: {photo?.created_at}</span>
-                            <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold">{photo?.name}</span>
-                          </div>
-                          {photo?.url ? (
-                            <div>
-                              <img 
-                                src={photo.url} 
-                                alt="صورة العداد" 
-                                className="w-full max-h-80 object-contain rounded-xl border bg-black/5 shadow-sm"
-                              />
-                              <div className="mt-2 text-left">
-                                <a 
-                                  href={photo.url} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer" 
-                                  className="text-blue-600 text-xs font-bold underline hover:text-blue-800"
-                                >
-                                  فتح الصورة بالحجم الكامل 🔍
-                                </a>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-red-500 italic">رابط الصورة غير متوفر.</p>
-                          )}
+                    .map((photo: any, index: number) => (
+                      <div key={photo?.id || index} className="bg-gray-50 p-4 rounded-2xl border space-y-2">
+                        <div className="flex justify-between items-center text-xs text-gray-500">
+                          <span className="font-bold text-gray-700">التاريخ المستخرج: {photo?.created_at}</span>
+                          <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold">{photo?.name}</span>
                         </div>
-                      );
-                    })}
+                        {photo?.url ? (
+                          <div>
+                            <img src={photo.url} alt="صورة العداد" className="w-full max-h-80 object-contain rounded-xl border bg-black/5 shadow-sm" />
+                            <div className="mt-2 text-left">
+                              <a href={photo.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 text-xs font-bold underline hover:text-blue-800">
+                                فتح الصورة بالحجم الكامل 🔍
+                              </a>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-red-500 italic">رابط الصورة غير متوفر.</p>
+                        )}
+                      </div>
+                    ))}
                 </div>
               </div>
             )}
 
             <div className="flex justify-end pt-2 border-t">
-              <button 
-                onClick={() => setIsPhotoModalOpen(false)} 
-                className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all"
-              >
-                إلغاء
-              </button>
+              <button onClick={() => setIsPhotoModalOpen(false)} className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all">إلغاء</button>
             </div>
           </div>
         </div>
@@ -1801,14 +1723,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                       <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
                         <span className="font-medium text-gray-700">{getDeviceName(m)} ({getDeviceCode(m)})</span>
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openPhotoModal(m);
-                            }}
-                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
-                            title="استعراض صورة العداد الشهرية"
-                          >
+                          <button onClick={(e) => { e.stopPropagation(); openPhotoModal(m); }} className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all">
                             <span>📷</span> صور العداد
                           </button>
                           <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} kWh</span>
@@ -1854,14 +1769,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                       <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
                         <span className="font-medium text-gray-700">{getDeviceName(m)} ({getDeviceCode(m)})</span>
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openPhotoModal(m);
-                            }}
-                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
-                            title="استعراض صورة العداد الشهرية"
-                          >
+                          <button onClick={(e) => { e.stopPropagation(); openPhotoModal(m); }} className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all">
                             <span>📷</span> صور العداد
                           </button>
                           <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} m³</span>
@@ -1877,7 +1785,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* عرض تفاصيل الطاقة الشمسية (بدون كود بجانب اسم الانفرتر بناءً على طلبك) */}
+      {/* عرض تفاصيل الطاقة الشمسية (بدون كود بجانب اسم الانفرتر) */}
       {activeTab === "solar" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {processedSolarData.map((park: any) => {
@@ -1920,7 +1828,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* عرض تفاصيل الأكشاك المرتبطة بالمنطقة */}
+      {/* عرض تفاصيل الأكشاك المرتبطة بالمنطقة عبر park_id */}
       {activeTab === "kiosks" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {processedKiosksData.map((park: any) => {
@@ -1951,14 +1859,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                         <div key={k.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
                           <span className="font-medium text-gray-700">{getDeviceName(k)} ({getDeviceCode(k)})</span>
                           <div className="flex items-center gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openPhotoModal(k);
-                              }}
-                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
-                              title="استعراض صورة الكشك الشهرية"
-                            >
+                            <button onClick={(e) => { e.stopPropagation(); openPhotoModal(k); }} className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all">
                               <span>📷</span> صور العداد
                             </button>
                             <span className="font-bold text-amber-600">{Math.round(Number(k.consumption || 0)).toLocaleString()} kWh</span>
