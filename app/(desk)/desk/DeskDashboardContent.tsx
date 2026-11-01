@@ -160,7 +160,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   // بيانات الأكشاك من جدول kiosks في الداتا بيز
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
-  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(new Map());
+  const [directKiosksCount, setDirectKiosksCount] = useState<number>(0);
 
   // جلب الأكشاك وقراءاتها مباشرة باستخدام park_id المطابق لجدولك
   useEffect(() => {
@@ -174,6 +175,11 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       try {
+        const { count, error: countErr } = await supabase.from("kiosks").select("*", { count: "exact", head: true });
+        if (!countErr && count !== null) {
+          setDirectKiosksCount(count);
+        }
+
         const { data: kiosksRows, error: kiosksErr } = await supabase.from("kiosks").select("*");
         if (kiosksErr) {
           console.error("Error fetching kiosks:", kiosksErr);
@@ -256,9 +262,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [selectedPhotoMonth, setSelectedPhotoMonth] = useState<string>("");
 
   // Monthly consumption delta maps
-  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
-  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
-  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState>(new Map());
+  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState>(new Map());
+  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState>(new Map());
 
   useEffect(() => {
     if (currentRawParks && Array.isArray(currentRawParks) && currentRawParks.length > 0) {
@@ -1470,10 +1476,12 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
             <span className="text-xs text-gray-500 font-bold block mb-1">Buildings</span>
             <span className="text-2xl font-black text-gray-800">{summary?.buildingsCount || 0}</span>
-        </div>
+          </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
             <span className="text-xs text-gray-500 font-bold block mb-1">Kiosks</span>
-            <span className="text-2xl font-black text-gray-800">{summary?.kiosksCount || 0}</span>
+            <span className="text-2xl font-black text-gray-800">
+              {summary?.kiosksCount || directKiosksCount || 0}
+            </span>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
             <span className="text-xs text-gray-500 font-bold block mb-1">Electric Meters</span>
