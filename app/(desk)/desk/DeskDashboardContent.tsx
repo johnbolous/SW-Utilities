@@ -229,6 +229,14 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     });
   }, [rawParksElec, kiosksTableData]);
 
+  // إجمالي عدد الأكشاك في المناطق المسموحة للمستخدم
+  const kiosksCount = useMemo(() => {
+    return rawParksKiosks.reduce(
+      (sum: number, park: any) => sum + (park?.kiosks?.length || 0),
+      0
+    );
+  }, [rawParksKiosks]);
+
   const currentRawParks = useMemo(() => {
     if (activeTab === "electric") return rawParksElec;
     if (activeTab === "water") return rawParksWater;
@@ -1472,8 +1480,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             <span className="text-2xl font-black text-gray-800">{summary?.buildingsCount || 0}</span>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
-            <span className="text-xs text-gray-500 font-bold block mb-1">Floors</span>
-            <span className="text-2xl font-black text-gray-800">{summary?.floorCount || 0}</span>
+            <span className="text-xs text-gray-500 font-bold block mb-1">Kiosks</span>
+            <span className="text-2xl font-black text-gray-800">{kiosksCount}</span>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
             <span className="text-xs text-gray-500 font-bold block mb-1">Electric Meters</span>
