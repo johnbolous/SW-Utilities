@@ -284,6 +284,12 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
     }
   }, [category, inverterId, structure]);
 
+  // الصورة مطلوبة (يوم 1) للمتوسط والمياه والأكشاك فقط، أما الباقي (منخفض/شمسي) فقراءة بس
+  const PHOTO_CATEGORIES: string[] = ["MEDIUM", "WATER", "KIOSK"];
+  const photoAppliesToCategory = PHOTO_CATEGORIES.includes(category);
+  const showPhotoSection = isFirst && photoAppliesToCategory;
+  const photoRequiredNow = photoRequired && photoAppliesToCategory;
+
   const numericCurrent = parseFloat(currentValue);
   const isLower = category !== "SOLAR" && category !== "DISTRIBUTOR" && !isNaN(numericCurrent) && numericCurrent < previousValue;
   
@@ -294,7 +300,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
 
   const canSave = category === "DISTRIBUTOR" 
     ? (!!distributorParkId && phaseA !== "" && phaseB !== "" && phaseC !== "") 
-    : (canEnterValue && !isNaN(numericCurrent) && numericCurrent >= 0 && (!photoRequired || !!photoId));
+    : (canEnterValue && !isNaN(numericCurrent) && numericCurrent >= 0 && (!photoRequiredNow || !!photoId));
 
   async function handleSaveDistributor() {
     if (!distributorParkId || phaseA === "" || phaseB === "" || phaseC === "") return;
@@ -617,7 +623,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
               className="mb-4"
             />
 
-            {isFirst && (
+            {showPhotoSection && (
               entityId ? (
                 <PhotoCapture
                   key={`${category}-${entityId}`}
@@ -626,7 +632,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
                   entityId={entityId}
                   readingDate={todayIso()}
                   onAccepted={(id) => setPhotoId(id)}
-                  required={photoRequired}
+                  required={photoRequiredNow}
                 />
               ) : (
                 <div className="mb-3 text-xs text-brand-gray bg-surface-soft rounded-lg px-3 py-2">
