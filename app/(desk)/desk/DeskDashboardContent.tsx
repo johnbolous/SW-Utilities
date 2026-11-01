@@ -1470,10 +1470,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
             <span className="text-xs text-gray-500 font-bold block mb-1">Buildings</span>
             <span className="text-2xl font-black text-gray-800">{summary?.buildingsCount || 0}</span>
-          </div>
+        </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
-            <span className="text-xs text-gray-500 font-bold block mb-1">Floors</span>
-            <span className="text-2xl font-black text-gray-800">{summary?.floorCount || 0}</span>
+            <span className="text-xs text-gray-500 font-bold block mb-1">Kiosks</span>
+            <span className="text-2xl font-black text-gray-800">{summary?.kiosksCount || 0}</span>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
             <span className="text-xs text-gray-500 font-bold block mb-1">Electric Meters</span>
