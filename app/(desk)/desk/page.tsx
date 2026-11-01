@@ -21,7 +21,6 @@ export default async function DeskPage() {
     .eq("id", user.id)
     .maybeSingle();
 
-  // تأمين قيمة all_parks_access لتكون بوليانية صريحة ودون أي تداخل
   const hasAllParksAccess = Boolean(dbUser?.all_parks_access);
 
   let targetParkIds: string[] = [];
@@ -60,12 +59,8 @@ export default async function DeskPage() {
   }
 
   const safeParkIds = finalParkIds.length ? finalParkIds : ["00000000-0000-0000-0000-000000000000"];
+  const { data: buildings } = await supabase.from("buildings").select("id, technology_park_id").in("technology_park_id", safeParkIds);
   
-  const { data: buildings } = await supabase
-    .from("buildings")
-    .select("id, technology_park_id")
-    .in("technology_park_id", safeParkIds);
-
   const safeBuildings = Array.isArray(buildings) ? buildings : [];
   const buildingIds = safeBuildings.map((b) => b?.id).filter(Boolean);
   const safeBuildingIds = buildingIds.length ? buildingIds : ["00000000-0000-0000-0000-000000000000"];
@@ -190,10 +185,12 @@ export default async function DeskPage() {
           .filter((r) => getDate(r) === todayDateStr)
           .reduce((sum, r) => sum + parseVal(r), 0);
 
+        const mIdStr = m?.id ? String(m.id) : "000000";
+
         return {
           id: m.id,
-          code: m.meter_code || `Meter-${String(m.id).slice(0, 6)}`,
-          label: m.label_en || m.label_ar || m.meter_code || `Meter-${String(m.id).slice(0, 6)}`,
+          code: m.meter_code || `Meter-${mIdStr.slice(0, 6)}`,
+          label: m.label_en || m.label_ar || m.meter_code || `Meter-${mIdStr.slice(0, 6)}`,
           tenant: m.tenant_name || "",
           category: m.category || "MEDIUM",
           consumption: todayConsumption,      
@@ -223,10 +220,12 @@ export default async function DeskPage() {
           .filter((r) => getDate(r) === todayDateStr)
           .reduce((sum, r) => sum + parseVal(r), 0);
 
+        const wIdStr = w?.id ? String(w.id) : "000000";
+
         return {
           id: w.id,
-          code: w.meter_code || `Water-${String(w.id).slice(0, 6)}`,
-          label: w.label_en || w.label_ar || w.meter_code || `Water-${String(w.id).slice(0, 6)}`,
+          code: w.meter_code || `Water-${wIdStr.slice(0, 6)}`,
+          label: w.label_en || w.label_ar || w.meter_code || `Water-${wIdStr.slice(0, 6)}`,
           consumption: todayConsumption,
           totalConsumption,
         };
@@ -254,10 +253,12 @@ export default async function DeskPage() {
           .filter((r) => getDate(r) === todayDateStr)
           .reduce((sum, r) => sum + parseVal(r), 0);
 
+        const sIdStr = s?.id ? String(s.id) : "000000";
+
         return {
           id: s.id,
-          code: s.inverter_code || s.code || `Solar-${String(s.id).slice(0, 6)}`,
-          label: s.label_en || s.label_ar || s.inverter_code || s.code || `Solar-${String(s.id).slice(0, 6)}`,
+          code: s.inverter_code || s.code || `Solar-${sIdStr.slice(0, 6)}`,
+          label: s.label_en || s.label_ar || s.inverter_code || s.code || `Solar-${sIdStr.slice(0, 6)}`,
           yield: todayYield,
           totalYield,
         };
