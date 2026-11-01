@@ -62,11 +62,16 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   const [isFirst, setIsFirst] = useState(false);
   const [photoRequired, setPhotoRequired] = useState(false);
 
+  // ids العدادات/الانفرترات/الأكشاك اللي اتسجلت لها قراءة (عشان نلونها ومتتفتحش تاني بالغلط)
+  const [doneTodayIds, setDoneTodayIds] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     const today = new Date();
     const firstDay = today.getDate() === 1;
     setIsFirst(firstDay);
     setPhotoRequired(firstDay && isPhotoRequiredToday(today));
+
+    loadDoneToday();
 
     fetchStructure()
       .then((data) => {
@@ -81,6 +86,64 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
   }, []); 
 
   const parksList = structure?.parks ?? [];
+
+  function markDone(id: string) {
+    if (!id) return;
+    setDoneTodayIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }
+
+  // جلب كل القراءات المسجلة بتاريخ النهاردة (كهرباء / مياه / أكشاك)
+  async function loadDoneToday() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const supabaseKey =
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+    if (!supabaseUrl || !supabaseKey) return;
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const today = todayIso();
+    const sources = [
+      { table: "electric_readings", field: "meter_id" },
+      { table: "water_readings", field: "water_meter_id" },
+      { table: "kiosk_readings", field: "kiosk_id" },
+    ];
+
+    const results = await Promise.all(
+      sources.map(async ({ table, field }) => {
+        try {
+          const { data, error: qErr } = await supabase
+            .from(table)
+            .select(field)
+            .eq("reading_date", today);
+          if (qErr) {
+            console.warn(`loadDoneToday(${table}) failed:`, qErr.message);
+            return [] as string[];
+          }
+          const rows = (data ?? []) as unknown as any[];
+          return rows.map((r) => r?.[field]).filter(Boolean) as string[];
+        } catch (e) {
+          console.warn(`loadDoneToday(${table}) error:`, e);
+          return [] as string[];
+        }
+      })
+    );
+
+    setDoneTodayIds((prev) => {
+      const next = new Set(prev);
+      results.flat().forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  // تنسيق الاختيار اللي اتسجل (بيشتغل في قوائم الكمبيوتر، والعلامة ✓ بتظهر في كل الأجهزة)
+  const doneOptionStyle = { backgroundColor: "#dcfce7", color: "#166534", fontWeight: 600 } as const;
+  const optStyle = (id: string) => (doneTodayIds.has(id) ? doneOptionStyle : undefined);
+  const optLabel = (id: string, text: string) => (doneTodayIds.has(id) ? `✓ ${text}` : text);
 
   const matchesPark = (item: any, parkId: string) => {
     if (!parkId) return true;
@@ -195,6 +258,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
       .then((info: any) => {
         setPreviousValue(info.previousValue ?? info.previous_value ?? 0);
         setAlreadyRead(info.alreadyReadThisPeriod ?? false);
+        if (info.alreadyReadThisPeriod) markDone(entityId);
         setMeterCode(info.meterCode ?? info.meter_code ?? "");
         
         // التقاط تاريخ reading_date الفعلي من استجابة الداتا بيز
@@ -295,6 +359,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
 
     if (result.ok) {
       setCurrentValue(""); setNotes(""); setPhotoId(null); setAlreadyRead(true);
+      markDone(entityId);
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2500);
       return;
@@ -389,8 +454,8 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
                 <Select value={lowMeterId} onChange={(e) => setLowMeterId(e.target.value)} className="mb-3">
                   <option value="">{t("selectValue")}</option>
                   {metersForFloor.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.room_code ? `${m.room_code} - ${m.label_en}` : m.label_en}
+                    <option key={m.id} value={m.id} style={optStyle(m.id)}>
+                      {optLabel(m.id, m.room_code ? `${m.room_code} - ${m.label_en}` : m.label_en)}
                     </option>
                   ))}
                 </Select>
@@ -405,7 +470,9 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             <Select value={mediumMeterId} onChange={(e) => setMediumMeterId(e.target.value)} className="mb-3">
               <option value="">{t("selectValue")}</option>
               {visibleMediumMeters.map((m) => (
-                <option key={m.id} value={m.id}>{m.label_en || (m as any).name}</option>
+                <option key={m.id} value={m.id} style={optStyle(m.id)}>
+                  {optLabel(m.id, m.label_en || (m as any).name)}
+                </option>
               ))}
             </Select>
           </>
@@ -424,12 +491,28 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             {solarBuildingId && (
               <>
                 <FieldLabel>{t("inverter")}</FieldLabel>
-                <Select value={inverterId} onChange={(e) => setInverterId(e.target.value)} className="mb-3">
-                  <option value="">{t("selectValue")}</option>
-                  {invertersForBuilding.map((i) => (
-                    <option key={i.id} value={i.id}>{t("inverter")} {i.inverter_no}</option>
-                  ))}
-                </Select>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
+                  {invertersForBuilding.map((i) => {
+                    const isSelected = inverterId === i.id;
+                    const isDone = doneTodayIds.has(i.id);
+                    return (
+                      <button
+                        type="button"
+                        key={i.id}
+                        onClick={() => setInverterId(i.id)}
+                        className={`px-2 py-2.5 rounded-lg text-sm font-display font-semibold border transition-colors ${
+                          isSelected
+                            ? "bg-brand-navy text-white border-brand-navy"
+                            : isDone
+                            ? "bg-success/10 text-success border-success/40"
+                            : "bg-surface-soft text-brand-gray border-border"
+                        }`}
+                      >
+                        {t("inverter")} {i.inverter_no}{isDone ? " ✓" : ""}
+                      </button>
+                    );
+                  })}
+                </div>
               </>
             )}
           </>
@@ -441,7 +524,9 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             <Select value={waterMeterId} onChange={(e) => setWaterMeterId(e.target.value)} className="mb-3">
               <option value="">{t("selectValue")}</option>
               {visibleWaterMeters.map((w) => (
-                <option key={w.id} value={w.id}>{w.label_en || (w as any).name}</option>
+                <option key={w.id} value={w.id} style={optStyle(w.id)}>
+                  {optLabel(w.id, w.label_en || (w as any).name)}
+                </option>
               ))}
             </Select>
           </>
@@ -453,7 +538,9 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             <Select value={kioskId} onChange={(e) => setKioskId(e.target.value)} className="mb-3">
               <option value="">{t("selectValue")}</option>
               {visibleKiosks.map((k) => (
-                <option key={k.id} value={k.id}>{k.label_en || (k as any).name}</option>
+                <option key={k.id} value={k.id} style={optStyle(k.id)}>
+                  {optLabel(k.id, k.label_en || (k as any).name)}
+                </option>
               ))}
             </Select>
           </>
@@ -531,14 +618,21 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
             />
 
             {isFirst && (
-              <PhotoCapture
-                userId={userId}
-                entityType={category as ReadingEntityType}
-                entityId={entityId}
-                readingDate={todayIso()}
-                onPhotoUploaded={(id) => setPhotoId(id)}
-                required={photoRequired}
-              />
+              entityId ? (
+                <PhotoCapture
+                  key={`${category}-${entityId}`}
+                  userId={userId}
+                  entityType={category as ReadingEntityType}
+                  entityId={entityId}
+                  readingDate={todayIso()}
+                  onPhotoUploaded={(id) => setPhotoId(id)}
+                  required={photoRequired}
+                />
+              ) : (
+                <div className="mb-3 text-xs text-brand-gray bg-surface-soft rounded-lg px-3 py-2">
+                  اختر العداد أولاً ثم ارفع صورته.
+                </div>
+              )
             )}
           </>
         )}
