@@ -253,7 +253,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState>(() => new Map());
   const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState>(() => new Map());
 
-  // تم إصلاح تهيئة الـ Maps هنا لتجنب خطأ الـ boolean true
+  // تم تصحيح جميع تعريفات الـ Maps هنا لتجنب خطأ الـ boolean true نهائياً
+  const [A, k] = useState>(() => new Map());
   const [H, J] = useState>(() => new Map());
   const [Q, G] = useState>(() => new Map());
   const [Z, $] = useState>(() => new Map());
