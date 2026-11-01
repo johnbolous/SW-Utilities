@@ -13,6 +13,7 @@ import {
   Legend,
 } from "recharts";
 
+// دالة حساب الاستهلاك الشهري للعدادات التراكمية
 function calculateMonthlyConsumption(readings: any[]) {
   if (!readings || !Array.isArray(readings) || readings.length === 0) return {};
 
@@ -27,7 +28,9 @@ function calculateMonthlyConsumption(readings: any[]) {
     const rawDate = r?.reading_date || r?.timestamp || r?.created_at || r?.date;
     if (!rawDate) return;
     const monthKey = String(rawDate).slice(0, 7);
-    if (!groupedByMonth[monthKey]) groupedByMonth[monthKey] = [];
+    if (!groupedByMonth[monthKey]) {
+      groupedByMonth[monthKey] = [];
+    }
     groupedByMonth[monthKey].push(r);
   });
 
@@ -40,10 +43,12 @@ function calculateMonthlyConsumption(readings: any[]) {
 
   monthKeys.forEach((monthKey) => {
     const monthReadings = groupedByMonth[monthKey];
-    if (!monthReadings || monthReadings.length === 0) return;
+    if (!monthReadings || !Array.isArray(monthReadings) || monthReadings.length === 0) return;
 
     const firstItem = monthReadings[0];
     const lastItem = monthReadings[monthReadings.length - 1];
+    if (!firstItem || !lastItem) return;
+
     const firstVal = getVal(firstItem);
     const lastVal = getVal(lastItem);
     const firstDate = new Date(firstItem.reading_date || firstItem.timestamp || firstItem.created_at || firstItem.date);
@@ -54,7 +59,13 @@ function calculateMonthlyConsumption(readings: any[]) {
     } else {
       if (lastKnownReading !== null && lastReadingDate !== null) {
         const diffMonths = (firstDate.getFullYear() - lastReadingDate.getFullYear()) * 12 + (firstDate.getMonth() - lastReadingDate.getMonth());
-        if (diffMonths <= 1) monthConsumption = lastVal - lastKnownReading;
+        if (diffMonths <= 1) {
+          monthConsumption = lastVal - lastKnownReading;
+        } else {
+          monthConsumption = 0;
+        }
+      } else {
+        monthConsumption = 0;
       }
     }
 
@@ -77,7 +88,9 @@ function calculateMonthlyConsumptionsForAllMeters(readings: any[], idField = "me
   readings.forEach(r => {
     const mId = r?.[idField] || r?.meter_id || r?.water_meter_id || r?.inverter_id || r?.kiosk_id;
     if (!mId) return;
-    if (!meterReadingsMap.has(mId)) meterReadingsMap.set(mId, []);
+    if (!meterReadingsMap.has(mId)) {
+      meterReadingsMap.set(mId, []);
+    }
     meterReadingsMap.get(mId)!.push(r);
   });
 
@@ -92,30 +105,40 @@ function calculateMonthlyConsumptionsForAllMeters(readings: any[], idField = "me
 function calculateMonthlySolarSum(readings: any[]) {
   if (!readings || !Array.isArray(readings) || readings.length === 0) return {};
   const monthlyResults: { [key: string]: number } = {};
+
   readings.forEach(r => {
     const rawDate = r?.reading_date || r?.timestamp || r?.created_at || r?.date;
     if (!rawDate) return;
     const monthKey = String(rawDate).slice(0, 7);
     const val = Number(r?.yield ?? r?.value ?? r?.production ?? 0);
-    if (!monthlyResults[monthKey]) monthlyResults[monthKey] = 0;
+
+    if (!monthlyResults[monthKey]) {
+      monthlyResults[monthKey] = 0;
+    }
     monthlyResults[monthKey] += val;
   });
+
   return monthlyResults;
 }
 
 function calculateSolarConsumptionsForAllInverters(readings: any[]) {
   const inverterReadingsMap = new Map<string, any[]>();
   if (!readings || !Array.isArray(readings)) return inverterReadingsMap;
+
   readings.forEach(r => {
     const invId = r?.inverter_id || r?.meter_id || r?.id;
     if (!invId) return;
-    if (!inverterReadingsMap.has(invId)) inverterReadingsMap.set(invId, []);
+    if (!inverterReadingsMap.has(invId)) {
+      inverterReadingsMap.set(invId, []);
+    }
     inverterReadingsMap.get(invId)!.push(r);
   });
+
   const inverterMonthlyMap = new Map<string, { [monthKey: string]: number }>();
   inverterReadingsMap.forEach((inverterReadings, invId) => {
     inverterMonthlyMap.set(invId, calculateMonthlySolarSum(inverterReadings));
   });
+
   return inverterMonthlyMap;
 }
 
@@ -131,23 +154,33 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
   const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(new Map());
 
-  // جلب الأكشاك وقراءاتها مباشرة من قاعدة البيانات
+  // جلب الأكشاك وقراءاتها من جدول kiosks و kiosk_readings
   useEffect(() => {
     const fetchKiosksAndReadings = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+      const supabaseKey = 
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+
       if (!supabaseUrl || !supabaseKey) return;
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       try {
         const { data: kiosksRows, error: kiosksErr } = await supabase.from("kiosks").select("*");
-        if (kiosksErr || !kiosksRows) return;
+        if (kiosksErr) {
+          console.error("Error fetching kiosks:", kiosksErr);
+          return;
+        }
 
-        if (kiosksRows.length > 0) {
+        if (kiosksRows && kiosksRows.length > 0) {
           const kioskIds = kiosksRows.map(k => k.id);
-          const { data: kioskReadings } = await supabase.from("kiosk_readings").select("*").in("kiosk_id", kioskIds);
+          
+          const { data: kioskReadings, error: readingsErr } = await supabase
+            .from("kiosk_readings")
+            .select("*")
+            .in("kiosk_id", kioskIds);
 
-          if (kioskReadings && kioskReadings.length > 0) {
+          if (!readingsErr && kioskReadings) {
             const readingsMap = new Map();
             kioskReadings.forEach(r => {
               const kId = r.kiosk_id;
@@ -168,14 +201,14 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           setKiosksTableData(kiosksRows);
         }
       } catch (err) {
-        console.error("Error fetching kiosks:", err);
+        console.error("Error in fetchKiosksAndReadings:", err);
       }
     };
 
     fetchKiosksAndReadings();
   }, []);
 
-  // ربط الأكشاك بمناطقها عبر park_id مع معالجة آمنة
+  // ربط الأكشاك بمناطقها عبر park_id
   const rawParksKiosks = useMemo(() => {
     if (!rawParksElec || !Array.isArray(rawParksElec)) return [];
     return rawParksElec.map((park: any) => {
@@ -197,6 +230,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   }, [activeTab, rawParksElec, rawParksWater, rawParksSolar, rawParksKiosks]);
 
   const [selectedCategory, setSelectedCategory] = useState("MEDIUM");
+  
   const [selectedParkIds, setSelectedParkIds] = useState<string[]>(() => {
     return rawParksElec && rawParksElec.length > 0 ? rawParksElec.map((p: any) => p.id) : [];
   });
@@ -244,7 +278,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   useEffect(() => {
     const fetchAllReadingsForCalculations = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+      const supabaseKey = 
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+
       if (!supabaseUrl || !supabaseKey) return;
       const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -259,7 +296,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
         if (elecMeterIds.length > 0) {
           const { data: elecReadings } = await supabase.from("electric_readings").select("*").in("meter_id", elecMeterIds);
-          if (elecReadings) setMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecReadings, "meter_id"));
+          if (elecReadings) {
+            setMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecReadings, "meter_id"));
+          }
         }
 
         const waterMeterIds: string[] = [];
@@ -272,7 +311,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
         if (waterMeterIds.length > 0) {
           const { data: waterReadings } = await supabase.from("water_readings").select("*").in("water_meter_id", waterMeterIds);
-          if (waterReadings) setWaterMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(waterReadings, "water_meter_id"));
+          if (waterReadings) {
+            setWaterMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(waterReadings, "water_meter_id"));
+          }
         }
 
         const inverterIds: string[] = [];
@@ -285,7 +326,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
         if (inverterIds.length > 0) {
           const { data: solarReadings } = await supabase.from("solar_production").select("*").in("inverter_id", inverterIds);
-          if (solarReadings) setSolarMonthlyConsumptions(calculateSolarConsumptionsForAllInverters(solarReadings));
+          if (solarReadings) {
+            setSolarMonthlyConsumptions(calculateSolarConsumptionsForAllInverters(solarReadings));
+          }
         }
       } catch (err) {
         console.error("Error fetching readings:", err);
@@ -300,9 +343,11 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     const now = Date.now();
     const end = new Date(now).toISOString().split("T")[0];
     let start = end;
+
     if (frame === "week") start = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     else if (frame === "month") start = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     else if (frame === "year") start = new Date(now - 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
     setDemandStartDate(start);
     setDemandEndDate(end);
   };
@@ -312,15 +357,19 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     const now = Date.now();
     const end = new Date(now).toISOString().split("T")[0];
     let start = end;
+
     if (frame === "week") start = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     else if (frame === "month") start = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     else if (frame === "year") start = new Date(now - 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
     setConsumptionStartDate(start);
     setConsumptionEndDate(end);
   };
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedMeterIdsForExport, setSelectedMeterIdsForExport] = useState<string[]>([]);
+  const [exportStartDate, setExportStartDate] = useState(thirtyDaysAgoStr);
+  const [exportEndDate, setExportEndDate] = useState(todayStr);
   const [isExporting, setIsExporting] = useState(false);
 
   const parkColors = ["#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4"];
@@ -353,7 +402,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   useEffect(() => {
     const fetchDistributorReadings = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+      const supabaseKey = 
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+
       if (!supabaseUrl || !supabaseKey) return;
       const supabase = createClient(supabaseUrl, supabaseKey);
       setIsChartLoading(true);
@@ -413,7 +465,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   useEffect(() => {
     const fetchConsumptionData = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+      const supabaseKey = 
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+
       if (!supabaseUrl || !supabaseKey) return;
       const supabase = createClient(supabaseUrl, supabaseKey);
       setIsConsumptionLoading(true);
@@ -531,6 +586,36 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return { todayMediumElec: daily, monthMediumElec: monthly, mediumMaxDemand: maxDem };
   }, [rawParksElec, parkAveragesMap, meterMonthlyConsumptions, currentMonthKey]);
 
+  const summarySolarMonth = useMemo(() => {
+    let sumMonth = 0;
+    if (Array.isArray(rawParksSolar)) {
+      rawParksSolar.forEach((park: any) => {
+        if (park && Array.isArray(park.inverters)) {
+          park.inverters.forEach((inv: any) => {
+            const invMap = solarMonthlyConsumptions.get(inv?.id);
+            sumMonth += invMap ? (invMap[currentMonthKey] ?? 0) : Number(inv?.totalYield || 0);
+          });
+        }
+      });
+    }
+    return sumMonth;
+  }, [rawParksSolar, solarMonthlyConsumptions, currentMonthKey]);
+
+  const summaryWaterMonth = useMemo(() => {
+    let sumMonth = 0;
+    if (Array.isArray(rawParksWater)) {
+      rawParksWater.forEach((park: any) => {
+        if (park && Array.isArray(park.meters)) {
+          park.meters.forEach((m: any) => {
+            const waterMap = waterMeterMonthlyConsumptions.get(m?.id);
+            sumMonth += waterMap ? (waterMap[currentMonthKey] ?? 0) : Number(m?.totalConsumption || 0);
+          });
+        }
+      });
+    }
+    return sumMonth;
+  }, [rawParksWater, waterMeterMonthlyConsumptions, currentMonthKey]);
+
   const processedElecData = useMemo(() => {
     if (!Array.isArray(rawParksElec)) return [];
     return rawParksElec.filter((park: any) => park && selectedParkIds.includes(park.id)).map((park: any) => {
@@ -548,17 +633,27 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     if (!Array.isArray(rawParksWater)) return [];
     return rawParksWater.filter((park: any) => park && selectedParkIds.includes(park.id)).map((park: any) => {
       const meters = park?.meters || [];
-      return { ...park, meters, waterDaily: meters.reduce((sum: number, m: any) => sum + Number(m?.consumption || 0), 0), waterTotal: meters.reduce((sum: number, m: any) => sum + Number(m?.totalConsumption || 0), 0), activeCount: meters.filter((m: any) => Number(m?.consumption || 0) > 0).length, totalCount: meters.length };
+      const waterDaily = meters.reduce((sum: number, m: any) => sum + Number(m?.consumption || 0), 0);
+      const waterTotal = meters.reduce((sum: number, m: any) => {
+        const waterMonthlyMap = waterMeterMonthlyConsumptions.get(m?.id);
+        return sum + (waterMonthlyMap ? (waterMonthlyMap[currentMonthKey] ?? 0) : Number(m?.totalConsumption || 0));
+      }, 0);
+      return { ...park, meters, waterDaily, waterTotal, activeCount: meters.filter((m: any) => Number(m?.consumption || 0) > 0).length, totalCount: meters.length };
     });
-  }, [rawParksWater, selectedParkIds]);
+  }, [rawParksWater, selectedParkIds, waterMeterMonthlyConsumptions, currentMonthKey]);
 
   const processedSolarData = useMemo(() => {
     if (!Array.isArray(rawParksSolar)) return [];
     return rawParksSolar.filter((park: any) => park && selectedParkIds.includes(park.id)).map((park: any) => {
       const inverters = park?.inverters || [];
-      return { ...park, inverters, solarDaily: inverters.reduce((sum: number, i: any) => sum + Number(i?.yield || 0), 0), solarTotal: inverters.reduce((sum: number, i: any) => sum + Number(i?.totalYield || 0), 0), activeCount: inverters.filter((i: any) => Number(i?.yield || 0) > 0).length, totalCount: inverters.length };
+      const solarDaily = inverters.reduce((sum: number, i: any) => sum + Number(i?.yield || 0), 0);
+      const solarTotal = inverters.reduce((sum: number, i: any) => {
+        const invMap = solarMonthlyConsumptions.get(i?.id);
+        return sum + (invMap ? (invMap[currentMonthKey] ?? 0) : Number(i?.totalYield || 0));
+      }, 0);
+      return { ...park, inverters, solarDaily, solarTotal, activeCount: inverters.filter((i: any) => Number(i?.yield || 0) > 0).length, totalCount: inverters.length };
     });
-  }, [rawParksSolar, selectedParkIds]);
+  }, [rawParksSolar, selectedParkIds, solarMonthlyConsumptions, currentMonthKey]);
 
   const processedKiosksData = useMemo(() => {
     if (!Array.isArray(rawParksKiosks)) return [];
@@ -582,17 +677,130 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return list;
   }, [activeTab, processedElecData, processedWaterData, processedSolarData, processedKiosksData]);
 
+  const getDatesInRange = (startDate: string, endDate: string) => {
+    const dates = [];
+    let curr = new Date(startDate);
+    const last = new Date(endDate);
+    while (curr <= last) {
+      dates.push(curr.toISOString().split("T")[0]);
+      curr.setDate(curr.getDate() + 1);
+    }
+    return dates.reverse();
+  };
+
   const handleCustomExport = async () => {
-    setIsExporting(false);
-    setIsExportModalOpen(false);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const supabaseKey = 
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+
+    if (!supabaseUrl || !supabaseKey) return;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    setIsExporting(true);
+
+    try {
+      let tableName = activeTab === "electric" ? "electric_readings" : activeTab === "water" ? "water_readings" : activeTab === "solar" ? "solar_production" : "kiosk_readings";
+      let meterIdField = activeTab === "electric" ? "meter_id" : activeTab === "water" ? "water_meter_id" : activeTab === "solar" ? "inverter_id" : "kiosk_id";
+
+      const targetMeterIds = selectedMeterIdsForExport.length > 0 ? selectedMeterIdsForExport : currentItemsList.map(i => i.id);
+      if (targetMeterIds.length === 0) {
+        alert("لا توجد عناصر مطابقة للفلاتر الحالية للتصدير!");
+        setIsExporting(false);
+        return;
+      }
+
+      const { data: fetchedReadings } = await supabase.from(tableName).select("*").in(meterIdField, targetMeterIds);
+      const readingsMap = new Map();
+      if (fetchedReadings) {
+        fetchedReadings.forEach((row: any) => {
+          const mId = row?.[meterIdField];
+          const rawDate = row?.reading_date || row?.timestamp || row?.created_at || row?.date;
+          if (!rawDate) return;
+          const dStr = getLocalDateStr(rawDate);
+          if (dStr < exportStartDate || dStr > exportEndDate) return;
+          let val = row?.current_value ?? row?.reading ?? row?.reading_value ?? row?.consumption ?? row?.value ?? row?.yield ?? null;
+          readingsMap.set(`${mId}_${dStr}`, val);
+        });
+      }
+
+      let csvContent = "\uFEFFالمنطقة,اسم الجهاز,الكود,التاريخ,القراءة المدخلة,الحالة\n";
+      const dateRange = getDatesInRange(exportStartDate, exportEndDate);
+
+      const processCsvRows = (items: any[], isSolar = false, isKiosk = false) => {
+        items.forEach((park: any) => {
+          const entityList = isSolar ? park?.inverters : (isKiosk ? park?.kiosks : (park?.electricMeters || park?.meters || []));
+          if (Array.isArray(entityList)) {
+            entityList.forEach((item: any) => {
+              const itemId = item?.id;
+              if (targetMeterIds.includes(itemId)) {
+                dateRange.forEach((dateStr) => {
+                  const foundVal = readingsMap.get(`${itemId}_${dateStr}`);
+                  csvContent += `"${park?.name || ''}","${getDeviceName(item)}","${getDeviceCode(item)}","${dateStr}",${foundVal ?? '"لم يتم ادخال قراءة"'},"${foundVal !== undefined ? "متوفرة" : "مفقودة"}"\n`;
+                });
+              }
+            });
+          }
+        });
+      };
+
+      if (activeTab === "electric") processCsvRows(processedElecData);
+      else if (activeTab === "water") processCsvRows(processedWaterData);
+      else if (activeTab === "solar") processCsvRows(processedSolarData, true);
+      else if (activeTab === "kiosks") processCsvRows(processedKiosksData, false, true);
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Readings_${activeTab}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setIsExportModalOpen(false);
+    } catch (err) {
+      alert("حدث خطأ أثناء التصدير.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
-      <div className="bg-slate-100 p-4 rounded-lg flex justify-between items-center border">
+      <div className="bg-slate-100 p-4 rounded-lg flex justify-between items-center border relative" dir="rtl">
         <div>
           <span className="text-xs text-slate-500 font-bold uppercase tracking-wider block">Technology Park</span>
           <h1 className="text-xl font-bold text-slate-800">{parkNames.length > 0 ? parkNames.join(", ") : "No Parks Assigned"}</h1>
+        </div>
+
+        <div className="relative">
+          <button 
+            onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+            className="relative p-2.5 bg-gradient-to-tr from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-white rounded-2xl shadow-md transition-all flex items-center justify-center gap-1.5"
+            title="التنبيهات والملاحظات"
+          >
+            <span className="text-base font-black">⚡</span>
+            {hasUnread && totalAlertsCount > 0 && (
+              <span className="absolute -top-1.5 -left-1.5 bg-red-600 text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow">
+                {totalAlertsCount}
+              </span>
+            )}
+          </button>
+
+          {isNotificationsOpen && (
+            <div className="absolute left-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden text-right" dir="rtl">
+              <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center">
+                <span className="font-bold text-xs flex items-center gap-1.5">
+                  <span className="text-amber-400">⚡</span> سجل التنبيهات
+                </span>
+                {hasUnread && (
+                  <button onClick={() => setHasUnread(false)} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded-lg transition-all">
+                    تحديد الكل كمقروء ✓
+                  </button>
+                )}
+              </div>
+              <div className="p-4 text-center text-xs text-gray-500">لا توجد تنبيهات جديدة حالياً.</div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -602,11 +810,88 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           if (!p) return null;
           const isSelected = selectedParkIds.includes(p.id);
           return (
-            <button key={p.id} onClick={() => setSelectedParkIds(prev => isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id])} className={`px-3 py-1 text-xs font-bold rounded-full border transition-all ${isSelected ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-gray-200 text-gray-500'}`}>
+            <button key={p.id} onClick={() => setSelectedParkIds(prev => isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id])} className={`px-3 py-1 text-xs font-bold rounded-full border transition-all ${isSelected ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
               {p.name}
             </button>
           );
         })}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="bg-[#0c1427] text-white p-5 rounded-3xl shadow-xl flex flex-col justify-between space-y-4">
+          <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+            <span className="text-xs bg-slate-800 text-slate-200 px-3 py-1 rounded-full font-mono">{todayStr}</span>
+            <span className="text-xs text-slate-400 font-medium">آخر قراءة مسجلة:</span>
+          </div>
+          <div className="space-y-3 overflow-y-auto max-h-[300px] pr-1">
+            {currentRawParks.map((park: any, idx: number) => {
+              if (!park) return null;
+              const latestData = latestParkReadingsMap.get(park.id);
+              const latestVal = latestData ? latestData.val : 0;
+              const color = parkColors[idx % parkColors.length];
+              return (
+                <div key={park.id} className="bg-[#151f38] p-3 rounded-2xl flex justify-between items-center border border-slate-800/65">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }}></span>
+                    <span className="text-xs font-bold text-slate-200">{park.name}</span>
+                  </div>
+                  <div className="text-left" dir="ltr">
+                    <span className="text-[10px] text-slate-400 font-bold mr-1">MVA</span>
+                    <span className="text-sm font-black text-white">{Number(latestVal).toFixed(3)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl shadow-md border border-gray-100 space-y-4">
+          <div className="flex justify-between items-center border-b pb-3">
+            <h3 className="font-bold text-sm text-gray-800">الأحمال الكهربائية القصوى (Max Demand)</h3>
+            <div className="flex items-center bg-gray-100 p-1 rounded-xl gap-1 text-[10px] font-bold">
+              <button onClick={() => handleDemandTimeFrameChange("week")} className={`px-2 py-1 rounded-lg ${demandTimeFrame === "week" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600'}`}>أسبوع</button>
+            </div>
+          </div>
+          <div className="h-72 w-full relative">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} />
+                <YAxis stroke="#94a3b8" fontSize={10} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '5px' }} />
+                {currentRawParks.map((park: any, idx: number) => {
+                  if (!park || !selectedParkIds.includes(park.id)) return null;
+                  return <Line key={park.id} type="monotone" dataKey={park.id} name={park.name} stroke={parkColors[idx % parkColors.length]} strokeWidth={2} dot={false} connectNulls />;
+                })}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl shadow-md border border-gray-100 space-y-4">
+          <div className="flex justify-between items-center border-b pb-3">
+            <h3 className="font-bold text-sm text-gray-800">مقارنة الاستهلاك (Consumption Comparison)</h3>
+            <div className="flex items-center bg-gray-100 p-1 rounded-xl gap-1 text-[10px] font-bold">
+              <button onClick={() => handleConsumptionTimeFrameChange("week")} className={`px-2 py-1 rounded-lg ${consumptionTimeFrame === "week" ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600'}`}>أسبوع</button>
+            </div>
+          </div>
+          <div className="h-72 w-full relative">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={consumptionChartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} />
+                <YAxis stroke="#94a3b8" fontSize={10} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '5px' }} />
+                {currentRawParks.map((park: any, idx: number) => {
+                  if (!park || !selectedParkIds.includes(park.id)) return null;
+                  return <Line key={park.id} type="monotone" dataKey={park.id} name={park.name} stroke={parkColors[idx % parkColors.length]} strokeWidth={2} dot={false} connectNulls />;
+                })}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
 
       <div className="flex bg-gray-100 p-1.5 rounded-2xl gap-2 shadow-inner">
@@ -616,6 +901,153 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         <button onClick={() => { setActiveTab("kiosks"); setSelectedParkIds(rawParksKiosks.map((p: any) => p?.id).filter(Boolean)); }} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "kiosks" ? 'bg-amber-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}>🏪 الأكشاك (Kiosks)</button>
       </div>
 
+      <div className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 flex flex-col md:flex-row gap-4 justify-between items-center">
+        {activeTab === "electric" && (
+          <div className="w-full md:w-1/4">
+            <label className="block text-xs font-bold mb-1.5 text-gray-700">⚡ فئة العدادات:</label>
+            <select className="w-full border p-2.5 rounded-xl bg-gray-50 text-xs font-medium text-gray-800 outline-none" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
+              <option value="MEDIUM">Medium Voltage (متوسطة - MED)</option>
+              <option value="LOW">Low Voltage (منخفضة - LOW)</option>
+            </select>
+          </div>
+        )}
+        <div className="w-full flex-1">
+          <label className="block text-xs font-bold mb-1.5 text-gray-700">📍 متابعة مناطق:</label>
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {currentRawParks.map((p: any) => {
+              if (!p) return null;
+              const isSelected = selectedParkIds.includes(p.id);
+              return (
+                <button key={p.id} onClick={() => setSelectedParkIds(prev => isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id])} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${isSelected ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                  {p.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="w-full md:w-auto flex items-end">
+          <button onClick={() => setIsExportModalOpen(true)} className="w-full md:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center justify-center gap-2">
+            <span>📥</span> تصدير القراءات (Excel/CSV)
+          </button>
+        </div>
+      </div>
+
+      {isExportModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl" dir="rtl">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-lg text-gray-800">تصدير القراءات التاريخية مفصلة</h3>
+              <button onClick={() => setIsExportModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-lg">✕</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">من تاريخ:</label>
+                <input type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} className="w-full border p-2 rounded-xl text-xs bg-gray-50 outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">إلى تاريخ:</label>
+                <input type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} className="w-full border p-2 rounded-xl text-xs bg-gray-50 outline-none" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <button onClick={() => setIsExportModalOpen(false)} disabled={isExporting} className="px-4 py-2 bg-gray-100 text-gray-700 text-xs font-bold rounded-xl">إلغاء</button>
+              <button onClick={handleCustomExport} disabled={isExporting} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow flex items-center gap-2">
+                {isExporting ? "جاري التصدير..." : "تحميل ملف الـ CSV"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* عرض تبويب الكهرباء */}
+      {activeTab === "electric" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {processedElecData.map((park: any) => {
+            if (!park) return null;
+            return (
+              <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
+                <div className="flex justify-between items-center border-b pb-3">
+                  <h3 className="font-bold text-lg text-gray-800">{park.name}</h3>
+                  <span className="text-xs bg-blue-50 text-blue-600 px-2.5 py-1 rounded-lg font-bold">{park.elecActiveCount} / {park.elecTotalCount} عداد</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="bg-gray-50 p-2.5 rounded-xl"><span className="text-gray-500 block mb-0.5">الاستهلاك اليومي</span><span className="font-bold text-gray-800">{Math.round(park.elecDaily || 0).toLocaleString()} kWh</span></div>
+                  <div className="bg-gray-50 p-2.5 rounded-xl"><span className="text-gray-500 block mb-0.5">إجمالي الشهر</span><span className="font-bold text-gray-800">{Math.round(park.elecTotalConsumption || 0).toLocaleString()} kWh</span></div>
+                  <div className="bg-gray-50 p-2.5 rounded-xl"><span className="text-gray-500 block mb-0.5">متوسط أقصى حمل</span><span className="font-bold text-amber-600">{Number(park.elecMaxDemand || 0).toFixed(3)} MVA</span></div>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                  {Array.isArray(park.electricMeters) && park.electricMeters.map((m: any) => (
+                    <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
+                      <span className="font-medium text-gray-700">{getDeviceName(m)} ({getDeviceCode(m)})</span>
+                      <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} kWh</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* عرض تبويب المياه */}
+      {activeTab === "water" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {processedWaterData.map((park: any) => {
+            if (!park) return null;
+            return (
+              <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
+                <div className="flex justify-between items-center border-b pb-3">
+                  <h3 className="font-bold text-lg text-gray-800">{park.name}</h3>
+                  <span className="text-xs bg-blue-50 text-blue-600 px-2.5 py-1 rounded-lg font-bold">{park.activeCount} / {park.totalCount} عداد مياه</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                  <div className="bg-gray-50 p-2.5 rounded-xl"><span className="text-gray-500 block mb-0.5">الاستهلاك اليومي</span><span className="font-bold text-gray-800">{Math.round(park.waterDaily || 0).toLocaleString()} m³</span></div>
+                  <div className="bg-gray-50 p-2.5 rounded-xl"><span className="text-gray-500 block mb-0.5">إجمالي الشهر</span><span className="font-bold text-gray-800">{Math.round(park.waterTotal || 0).toLocaleString()} m³</span></div>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                  {Array.isArray(park.meters) && park.meters.map((m: any) => (
+                    <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
+                      <span className="font-medium text-gray-700">{getDeviceName(m)}</span>
+                      <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} m³</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* عرض تبويب الطاقة الشمسية */}
+      {activeTab === "solar" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {processedSolarData.map((park: any) => {
+            if (!park) return null;
+            return (
+              <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
+                <div className="flex justify-between items-center border-b pb-3">
+                  <h3 className="font-bold text-lg text-gray-800">{park.name}</h3>
+                  <span className="text-xs bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-lg font-bold">{park.activeCount} / {park.totalCount} انفرتر شمسي</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                  <div className="bg-gray-50 p-2.5 rounded-xl"><span className="text-gray-500 block mb-0.5">الإنتاج اليومي</span><span className="font-bold text-gray-800">{Math.round(park.solarDaily || 0).toLocaleString()} kWh</span></div>
+                  <div className="bg-gray-50 p-2.5 rounded-xl"><span className="text-gray-500 block mb-0.5">إجمالي الشهر</span><span className="font-bold text-gray-800">{Math.round(park.solarTotal || 0).toLocaleString()} kWh</span></div>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                  {Array.isArray(park.inverters) && park.inverters.map((i: any) => (
+                    <div key={i.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
+                      <span className="font-medium text-gray-700">{getDeviceName(i)}</span>
+                      <span className="font-bold text-emerald-600">{Math.round(Number(i.yield || 0)).toLocaleString()} kWh</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* عرض تبويب الأكشاك (Kiosks) */}
       {activeTab === "kiosks" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {processedKiosksData.map((park: any) => {
@@ -640,18 +1072,15 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
                   {Array.isArray(park.kiosks) && park.kiosks.length > 0 ? (
-                    park.kiosks.map((k: any) => {
-                      if (!k) return null;
-                      return (
-                        <div key={k.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
-                          <span className="font-medium text-gray-700">{getDeviceName(k)} ({getDeviceCode(k)})</span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-amber-600">{Math.round(Number(k.consumption || 0)).toLocaleString()} kWh</span>
-                            <span className={`w-2 h-2 rounded-full ${Number(k.consumption || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
-                          </div>
+                    park.kiosks.map((k: any) => (
+                      <div key={k.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
+                        <span className="font-medium text-gray-700">{getDeviceName(k)} ({getDeviceCode(k)})</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-amber-600">{Math.round(Number(k.consumption || 0)).toLocaleString()} kWh</span>
+                          <span className={`w-2 h-2 rounded-full ${Number(k.consumption || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
                         </div>
-                      );
-                    })
+                      </div>
+                    ))
                   ) : (
                     <div className="text-center py-4 text-xs text-gray-400">لا توجد أكشاك مسجلة في هذه المنطقة</div>
                   )}
@@ -659,67 +1088,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
               </div>
             );
           })}
-        </div>
-      )}
-
-      {activeTab === "electric" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {processedElecData.map((park: any) => (
-            <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-lg text-gray-800">{park.name}</h3>
-                <span className="text-xs bg-blue-50 text-blue-600 px-2.5 py-1 rounded-lg font-bold">{park.elecActiveCount} / {park.elecTotalCount} عداد</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                <div className="bg-gray-50 p-2.5 rounded-xl"><span className="text-gray-500 block mb-0.5">الاستهلاك اليومي</span><span className="font-bold text-gray-800">{Math.round(park.elecDaily || 0).toLocaleString()} kWh</span></div>
-                <div className="bg-gray-50 p-2.5 rounded-xl"><span className="text-gray-500 block mb-0.5">إجمالي الشهر</span><span className="font-bold text-gray-800">{Math.round(park.elecTotalConsumption || 0).toLocaleString()} kWh</span></div>
-              </div>
-              <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
-                {Array.isArray(park.electricMeters) && park.electricMeters.map((m: any) => (
-                  <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
-                    <span className="font-medium text-gray-700">{getDeviceName(m)} ({getDeviceCode(m)})</span>
-                    <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} kWh</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {activeTab === "water" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {processedWaterData.map((park: any) => (
-            <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
-              <div className="flex justify-between items-center border-b pb-3"><h3 className="font-bold text-lg text-gray-800">{park.name}</h3></div>
-              <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
-                {Array.isArray(park.meters) && park.meters.map((m: any) => (
-                  <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
-                    <span className="font-medium text-gray-700">{getDeviceName(m)}</span>
-                    <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} m³</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {activeTab === "solar" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {processedSolarData.map((park: any) => (
-            <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
-              <div className="flex justify-between items-center border-b pb-3"><h3 className="font-bold text-lg text-gray-800">{park.name}</h3></div>
-              <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
-                {Array.isArray(park.inverters) && park.inverters.map((i: any) => (
-                  <div key={i.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
-                    <span className="font-medium text-gray-700">{getDeviceName(i)}</span>
-                    <span className="font-bold text-emerald-600">{Math.round(Number(i.yield || 0)).toLocaleString()} kWh</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
         </div>
       )}
     </div>
