@@ -13,7 +13,6 @@ import {
   Legend,
 } from "recharts";
 
-// دالة ذكية لحساب الاستهلاك الشهري للعدادات التراكمية مع التعامل مع الشهور الفارغة بدون دمج
 function calculateMonthlyConsumption(readings: any[]) {
   if (!readings || !Array.isArray(readings) || readings.length === 0) return {};
 
@@ -27,7 +26,7 @@ function calculateMonthlyConsumption(readings: any[]) {
   sortedReadings.forEach(r => {
     const rawDate = r?.reading_date || r?.timestamp || r?.created_at || r?.date;
     if (!rawDate) return;
-    const monthKey = String(rawDate).slice(0, 7); // "YYYY-MM"
+    const monthKey = String(rawDate).slice(0, 7);
     
     if (!groupedByMonth[monthKey]) {
       groupedByMonth[monthKey] = [];
@@ -114,7 +113,7 @@ function calculateMonthlySolarSum(readings: any[]) {
   readings.forEach(r => {
     const rawDate = r?.reading_date || r?.timestamp || r?.created_at || r?.date;
     if (!rawDate) return;
-    const monthKey = String(rawDate).slice(0, 7); // "YYYY-MM"
+    const monthKey = String(rawDate).slice(0, 7);
     
     const val = Number(r?.yield ?? r?.value ?? r?.production ?? 0);
 
@@ -159,7 +158,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const rawParksSolar = Array.isArray(data?.parksSolarData) ? data.parksSolarData : [];
 
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
-  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(new Map());
+  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(() => new Map());
 
   useEffect(() => {
     const fetchKiosksAndReadings = async () => {
@@ -253,6 +252,11 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState>(() => new Map());
   const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState>(() => new Map());
   const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState>(() => new Map());
+
+  // تم إصلاح تهيئة الـ Maps هنا لتجنب خطأ الـ boolean true
+  const [H, J] = useState>(() => new Map());
+  const [Q, G] = useState>(() => new Map());
+  const [Z, $] = useState>(() => new Map());
 
   useEffect(() => {
     if (Array.isArray(currentRawParks) && currentRawParks.length > 0) {
