@@ -160,9 +160,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
   const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(() => new Map());
 
-  // تم تصحيح طريقة تعريف الـ State هنا بالكامل وتجنب علامة الأكبر من '>'
-  const [A, k] = useState>(() => new Map());
-
   useEffect(() => {
     const fetchKiosksAndReadings = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -256,13 +253,11 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState>(() => new Map());
   const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState>(() => new Map());
 
-  // تم تصحيح جميع تعريفات الـ Maps هنا بطريقة صريحة وآمنة
+  // التعريفات الآمنة تماماً بدون علامة الأكبر من (>)
+  const [A, k] = useState>(() => new Map());
   const [H, J] = useState>(() => new Map());
   const [Q, G] = useState>(() => new Map());
   const [Z, $] = useState>(() => new Map());
-  const [ee, et] = useState>(() => new Map());
-  const [er, ea] = useState>(() => new Map());
-  const [el, es] = useState>(() => new Map());
 
   useEffect(() => {
     if (Array.isArray(currentRawParks) && currentRawParks.length > 0) {
@@ -312,7 +307,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         if (elecMeterIds.length > 0) {
           const { data: elecReadings } = await supabase.from("electric_readings").select("*").in("meter_id", elecMeterIds);
           if (Array.isArray(elecReadings)) {
-            J(calculateMonthlyConsumptionsForAllMeters(elecReadings, "meter_id"));
+            setMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecReadings, "meter_id"));
           }
         }
 
@@ -327,7 +322,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         if (waterMeterIds.length > 0) {
           const { data: waterReadings } = await supabase.from("water_readings").select("*").in("water_meter_id", waterMeterIds);
           if (Array.isArray(waterReadings)) {
-            G(calculateMonthlyConsumptionsForAllMeters(waterReadings, "water_meter_id"));
+            setWaterMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(waterReadings, "water_meter_id"));
           }
         }
 
@@ -342,7 +337,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         if (inverterIds.length > 0) {
           const { data: solarReadings } = await supabase.from("solar_production").select("*").in("inverter_id", inverterIds);
           if (Array.isArray(solarReadings)) {
-            $(calculateSolarConsumptionsForAllInverters(solarReadings));
+            setSolarMonthlyConsumptions(calculateSolarConsumptionsForAllInverters(solarReadings));
           }
         }
       } catch (err) {
@@ -824,7 +819,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             const cat = String(m?.category || "").trim().toUpperCase();
             if (cat === "MEDIUM" || cat === "MED" || cat.includes("MEDIUM")) {
               daily += Number(m?.consumption || 0);
-              const meterMonthlyMap = H.get(m?.id);
+              const meterMonthlyMap = meterMonthlyConsumptions.get(m?.id);
               const monthlyVal = meterMonthlyMap ? (meterMonthlyMap[currentMonthKey] ?? 0) : Number(m?.totalConsumption || 0);
               monthly += monthlyVal;
             }
@@ -840,7 +835,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     }
 
     return { todayMediumElec: daily, monthMediumElec: monthly, mediumMaxDemand: maxDem };
-  }, [rawParksElec, parkAveragesMap, H, currentMonthKey]);
+  }, [rawParksElec, parkAveragesMap, meterMonthlyConsumptions, currentMonthKey]);
 
   const summarySolarMonth = useMemo(() => {
     let sumMonth = 0;
@@ -848,7 +843,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       rawParksSolar.forEach((park: any) => {
         if (park && Array.isArray(park.inverters)) {
           park.inverters.forEach((inv: any) => {
-            const invMap = Z.get(inv?.id);
+            const invMap = solarMonthlyConsumptions.get(inv?.id);
             const val = invMap ? (invMap[currentMonthKey] ?? 0) : Number(inv?.totalYield || 0);
             sumMonth += val;
           });
@@ -856,7 +851,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       });
     }
     return sumMonth;
-  }, [rawParksSolar, Z, currentMonthKey]);
+  }, [rawParksSolar, solarMonthlyConsumptions, currentMonthKey]);
 
   const summaryWaterMonth = useMemo(() => {
     let sumMonth = 0;
@@ -864,7 +859,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       rawParksWater.forEach((park: any) => {
         if (park && Array.isArray(park.meters)) {
           park.meters.forEach((m: any) => {
-            const waterMap = Q.get(m?.id);
+            const waterMap = waterMeterMonthlyConsumptions.get(m?.id);
             const val = waterMap ? (waterMap[currentMonthKey] ?? 0) : Number(m?.totalConsumption || 0);
             sumMonth += val;
           });
@@ -872,7 +867,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       });
     }
     return sumMonth;
-  }, [rawParksWater, Q, currentMonthKey]);
+  }, [rawParksWater, waterMeterMonthlyConsumptions, currentMonthKey]);
 
   const processedElecData = useMemo(() => {
     if (!Array.isArray(rawParksElec)) return [];
@@ -890,7 +885,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         const elecDaily = electricMeters.reduce((sum: number, m: any) => sum + Number(m?.consumption || 0), 0);
         
         const elecTotalConsumption = electricMeters.reduce((sum: number, m: any) => {
-          const meterMonthlyMap = H.get(m?.id);
+          const meterMonthlyMap = meterMonthlyConsumptions.get(m?.id);
           const monthlyVal = meterMonthlyMap ? (meterMonthlyMap[currentMonthKey] ?? 0) : Number(m?.totalConsumption || 0);
           return sum + monthlyVal;
         }, 0);
@@ -907,7 +902,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           elecActiveCount: electricMeters.filter((m: any) => Number(m?.consumption || 0) > 0).length,
         };
       });
-  }, [rawParksElec, selectedParkIds, selectedCategory, parkAveragesMap, H, currentMonthKey]);
+  }, [rawParksElec, selectedParkIds, selectedCategory, parkAveragesMap, meterMonthlyConsumptions, currentMonthKey]);
 
   const processedWaterData = useMemo(() => {
     if (!Array.isArray(rawParksWater)) return [];
@@ -917,7 +912,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         const meters = Array.isArray(park?.meters) ? park.meters : [];
         const waterDaily = meters.reduce((sum: number, m: any) => sum + Number(m?.consumption || 0), 0);
         const waterTotal = meters.reduce((sum: number, m: any) => {
-          const waterMonthlyMap = Q.get(m?.id);
+          const waterMonthlyMap = waterMeterMonthlyConsumptions.get(m?.id);
           const monthlyVal = waterMonthlyMap ? (waterMonthlyMap[currentMonthKey] ?? 0) : Number(m?.totalConsumption || 0);
           return sum + monthlyVal;
         }, 0);
@@ -931,7 +926,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           totalCount: meters.length,
         };
       });
-  }, [rawParksWater, selectedParkIds, Q, currentMonthKey]);
+  }, [rawParksWater, selectedParkIds, waterMeterMonthlyConsumptions, currentMonthKey]);
 
   const processedSolarData = useMemo(() => {
     if (!Array.isArray(rawParksSolar)) return [];
@@ -942,7 +937,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         const solarDaily = inverters.reduce((sum: number, i: any) => sum + Number(i?.yield || 0), 0);
         
         const solarTotal = inverters.reduce((sum: number, i: any) => {
-          const invMap = Z.get(i?.id);
+          const invMap = solarMonthlyConsumptions.get(i?.id);
           const monthlyVal = invMap ? (invMap[currentMonthKey] ?? 0) : Number(i?.totalYield || 0);
           return sum + monthlyVal;
         }, 0);
@@ -956,7 +951,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           totalCount: inverters.length,
         };
       });
-  }, [rawParksSolar, selectedParkIds, Z, currentMonthKey]);
+  }, [rawParksSolar, selectedParkIds, solarMonthlyConsumptions, currentMonthKey]);
 
   const processedKiosksData = useMemo(() => {
     if (!Array.isArray(rawParksKiosks)) return [];
@@ -966,7 +961,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         const kiosksList = Array.isArray(park?.kiosks) ? park.kiosks : [];
         const kiosksDaily = kiosksList.reduce((sum: number, k: any) => sum + Number(k?.consumption || 0), 0);
         const kiosksTotal = kiosksList.reduce((sum: number, k: any) => {
-          const kioskMap = A.get(k?.id);
+          const kioskMap = kioskMonthlyConsumptions.get(k?.id);
           const monthlyVal = kioskMap ? (kioskMap[currentMonthKey] ?? 0) : Number(k?.totalConsumption || 0);
           return sum + monthlyVal;
         }, 0);
@@ -980,7 +975,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           totalCount: kiosksList.length,
         };
       });
-  }, [rawParksKiosks, selectedParkIds, A, currentMonthKey]);
+  }, [rawParksKiosks, selectedParkIds, kioskMonthlyConsumptions, currentMonthKey]);
 
   const currentItemsList = useMemo(() => {
     let list: any[] = [];
