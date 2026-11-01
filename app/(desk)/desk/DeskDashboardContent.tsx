@@ -161,6 +161,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   // بيانات الأكشاك من جدول kiosks في الداتا بيز
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
   const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [kiosksLoadMessage, setKiosksLoadMessage] = useState<string>("");
 
   // جلب الأكشاك وقراءاتها مباشرة باستخدام park_id المطابق لجدولك
   useEffect(() => {
@@ -177,6 +178,12 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         const { data: kiosksRows, error: kiosksErr } = await supabase.from("kiosks").select("*");
         if (kiosksErr) {
           console.error("Error fetching kiosks:", kiosksErr);
+          setKiosksLoadMessage(`خطأ في جلب الأكشاك من الداتا بيز: ${kiosksErr.message}`);
+          return;
+        }
+
+        if (!kiosksRows || kiosksRows.length === 0) {
+          setKiosksLoadMessage("لم يتم إرجاع أي أكشاك من جدول kiosks. غالباً صلاحيات القراءة (RLS) تمنع عرضها، راجع سياسة SELECT على الجدول.");
           return;
         }
 
@@ -188,25 +195,33 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             .select("*")
             .in("kiosk_id", kioskIds);
 
+          if (readingsErr) {
+            console.error("Error fetching kiosk readings:", readingsErr);
+            setKiosksLoadMessage(`تم جلب الأكشاك لكن فشل جلب القراءات: ${readingsErr.message}`);
+          }
+
           if (!readingsErr && kioskReadings) {
             const readingsMap = new Map();
             kioskReadings.forEach(r => {
               const kId = r.kiosk_id;
               const consumptionVal = Number(r?.consumption ?? (Number(r?.current_value || 0) - Number(r?.previous_value || 0)) ?? 0);
               if (!readingsMap.has(kId) || new Date(r?.reading_date || 0).getTime() > new Date(readingsMap.get(kId).reading_date || 0).getTime()) {
-                readingsMap.set(kId, { consumption: consumptionVal, reading_date: r?.reading_date });
+                readingsMap.set(kId, { consumption: consumptionVal, reading_date: r?.reading_date, current_value: r?.current_value });
               }
             });
 
             kiosksRows.forEach(k => {
               const latest = readingsMap.get(k.id);
               k.consumption = latest ? latest.consumption : 0;
+              k.last_reading_date = latest ? latest.reading_date : null;
+              k.last_reading_value = latest ? latest.current_value : null;
             });
 
             setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(kioskReadings, "kiosk_id"));
           }
 
           setKiosksTableData(kiosksRows);
+          setKiosksLoadMessage("");
         }
       } catch (err) {
         console.error("Error in fetchKiosksAndReadings:", err);
@@ -1838,6 +1853,12 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
       {/* عرض تفاصيل الأكشاك المرتبطة بالمنطقة عبر park_id */}
       {activeTab === "kiosks" && (
+        <div className="space-y-4">
+        {kiosksLoadMessage && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold p-3 rounded-xl">
+            {kiosksLoadMessage}
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {processedKiosksData.map((park: any) => {
             if (!park) return null;
@@ -1865,7 +1886,14 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                       if (!k) return null;
                       return (
                         <div key={k.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
-                          <span className="font-medium text-gray-700">{getDeviceName(k)} ({getDeviceCode(k)})</span>
+                          <div>
+                            <span className="font-medium text-gray-700 block">{getDeviceName(k)} ({getDeviceCode(k)})</span>
+                            {k.last_reading_date && (
+                              <span className="text-[10px] text-gray-400 block" dir="ltr">
+                                آخر قراءة: {Number(k.last_reading_value || 0).toLocaleString()} ({k.last_reading_date})
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2">
                             <button onClick={(e) => { e.stopPropagation(); openPhotoModal(k); }} className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all">
                               <span>📷</span> صور العداد
@@ -1883,6 +1911,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
               </div>
             );
           })}
+        </div>
         </div>
       )}
     </div>
