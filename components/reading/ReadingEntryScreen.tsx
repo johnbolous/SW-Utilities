@@ -625,7 +625,7 @@ export function ReadingEntryScreen({ userId }: { userId: string }) {
                   entityType={category as ReadingEntityType}
                   entityId={entityId}
                   readingDate={todayIso()}
-                  onPhotoUploaded={(id) => setPhotoId(id)}
+                  onAccepted={(id) => setPhotoId(id)}
                   required={photoRequired}
                 />
               ) : (
