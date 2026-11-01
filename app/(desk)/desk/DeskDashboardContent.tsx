@@ -13,14 +13,12 @@ import {
   Legend,
 } from "recharts";
 
-// تهيئة Supabase مرة واحدة خارج المكون لتجنب إعادة الإنشاء الخاطئة
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = 
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-// دالة ذكية لحساب الاستهلاك الشهري للعدادات التراكمية
 function calculateMonthlyConsumption(readings: any[]) {
   if (!readings || !Array.isArray(readings) || readings.length === 0) return {};
 
@@ -35,7 +33,6 @@ function calculateMonthlyConsumption(readings: any[]) {
     const rawDate = r?.reading_date || r?.timestamp || r?.created_at || r?.date;
     if (!rawDate) return;
     const monthKey = String(rawDate).slice(0, 7);
-    
     if (!groupedByMonth[monthKey]) {
       groupedByMonth[monthKey] = [];
     }
@@ -44,7 +41,6 @@ function calculateMonthlyConsumption(readings: any[]) {
 
   const monthKeys = Object.keys(groupedByMonth).sort();
   const monthlyResults: { [key: string]: number } = {};
-  
   const getVal = (item: any) => Number(item?.current_value ?? item?.reading ?? item?.reading_value ?? item?.consumption ?? 0);
 
   let lastKnownReading: number | null = null;
@@ -63,7 +59,6 @@ function calculateMonthlyConsumption(readings: any[]) {
     const firstDate = new Date(firstItem.reading_date || firstItem.timestamp || firstItem.created_at || firstItem.date);
 
     let monthConsumption = 0;
-
     if (monthReadings.length > 1) {
       monthConsumption = lastVal - firstVal;
     } else {
@@ -164,7 +159,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
   const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(new Map());
 
-  // جلب الأكشاك وقراءاتها بأمان تام
   useEffect(() => {
     const fetchKiosksAndReadings = async () => {
       if (!supabase) return;
@@ -384,8 +378,32 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const categorizedAlerts = useMemo(() => {
     const important: { id: string; title: string; message: string }[] = [];
     const normal: { id: string; title: string; message: string }[] = [];
+
+    if (Array.isArray(rawParksElec)) {
+      rawParksElec.forEach((park: any) => {
+        if (park && Array.isArray(park.meters)) {
+          park.meters.forEach((m: any) => {
+            const consumption = Number(m?.consumption || 0);
+            const deviceName = getDeviceName(m);
+            if (consumption > 50000) {
+              important.push({
+                id: `elec-high-${m?.id || Math.random()}`,
+                title: "تنبيه: استهلاك فائق",
+                message: `العداد (${deviceName}) في ${park?.name || ''} سجل استهلاكاً مرتفعاً قدره ${consumption.toLocaleString()} kWh.`
+              });
+            } else if (consumption === 0) {
+              normal.push({
+                id: `elec-zero-${m?.id || Math.random()}`,
+                title: "عداد بدون استهلاك",
+                message: `العداد (${deviceName}) في ${park?.name || ''} مسجل بقراءة مستقرة دون تغيير.`
+              });
+            }
+          });
+        }
+      });
+    }
     return { important, normal };
-  }, []);
+  }, [rawParksElec]);
 
   const totalAlertsCount = categorizedAlerts.important.length + categorizedAlerts.normal.length;
 
@@ -394,6 +412,58 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     setIsPhotoModalOpen(true);
     setIsLoadingPhotos(true);
     setMeterPhotosList([]);
+    setSelectedPhotoMonth("");
+
+    if (!supabase) {
+      setIsLoadingPhotos(false);
+      return;
+    }
+
+    try {
+      const meterCode = getDeviceCode(meter);
+      const cat = String(meter?.category || activeTab || "medium").trim().toLowerCase();
+      let folderCategory = "medium";
+      if (activeTab === "water" || cat.includes("water")) folderCategory = "water";
+      else if (cat.includes("low") || cat === "low") folderCategory = "low";
+      else if (activeTab === "kiosks" || cat.includes("kiosk")) folderCategory = "kiosk";
+
+      const mainBucket = "meter-photos";
+      const targetPath = `${folderCategory}/${meterCode}`;
+      let fetchedPhotos: any[] = [];
+
+      const { data: storageFiles } = await supabase.storage.from(mainBucket).list(targetPath, {
+        limit: 100,
+        sortBy: { column: 'name', order: 'desc' },
+      });
+
+      if (storageFiles && storageFiles.length > 0) {
+        storageFiles.forEach((file: any) => {
+          if (file?.name && file.name !== ".emptyFolderPlaceholder") {
+            const filePath = `${targetPath}/${file.name}`;
+            const { data: publicUrlData } = supabase.storage.from(mainBucket).getPublicUrl(filePath);
+            let dateStr = file?.created_at || "";
+            const match = file.name.match(/(\d{4}-\d{2}-\d{2})/);
+            if (match) dateStr = match[1];
+
+            fetchedPhotos.push({
+              id: file?.id || filePath,
+              url: publicUrlData?.publicUrl || "",
+              created_at: dateStr || todayStr,
+              name: file.name
+            });
+          }
+        });
+      }
+
+      setMeterPhotosList(fetchedPhotos);
+      if (fetchedPhotos.length > 0 && fetchedPhotos[0]?.created_at) {
+        setSelectedPhotoMonth(fetchedPhotos[0].created_at.slice(0, 7));
+      }
+    } catch (err) {
+      console.error("Error fetching photos:", err);
+    } finally {
+      setIsLoadingPhotos(false);
+    }
   };
 
   useEffect(() => {
@@ -777,7 +847,23 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                   </button>
                 )}
               </div>
-              <div className="p-4 text-center text-xs text-gray-500">لا توجد تنبيهات جديدة حالياً.</div>
+              <div className="max-h-72 overflow-y-auto divide-y divide-gray-100">
+                {categorizedAlerts.important.length === 0 && categorizedAlerts.normal.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-gray-400">لا توجد تنبيهات جديدة حالياً.</div>
+                ) : (
+                  <>
+                    {categorizedAlerts.important.map((alert) => (
+                      <div key={alert.id} className="p-3.5 hover:bg-red-50/50 transition-all flex items-start gap-3">
+                        <div className="w-2 h-2 rounded-full bg-red-500 mt-1.5 shrink-0"></div>
+                        <div className="space-y-0.5 flex-1">
+                          <span className="font-bold text-xs text-gray-900 block">{alert.title}</span>
+                          <p className="text-[11px] text-gray-600 leading-relaxed">{alert.message}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -938,6 +1024,38 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
+      {isPhotoModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl" dir="rtl">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-gray-800">صور العداد: {currentMeterForPhoto ? getDeviceName(currentMeterForPhoto) : ""}</h3>
+              </div>
+              <button onClick={() => setIsPhotoModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-lg">✕</button>
+            </div>
+            {isLoadingPhotos ? (
+              <div className="py-12 text-center text-xs text-gray-500 font-bold">جاري تحميل الصور...</div>
+            ) : meterPhotosList.length === 0 ? (
+              <div className="py-12 text-center text-xs text-gray-400">لا توجد صور مخزنة لهذا الجهاز.</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="max-h-[350px] overflow-y-auto space-y-3">
+                  {meterPhotosList.map((photo: any, index: number) => (
+                    <div key={photo?.id || index} className="bg-gray-50 p-4 rounded-2xl border space-y-2">
+                      <div className="text-xs text-gray-500 font-bold">{photo?.created_at}</div>
+                      <img src={photo.url} alt="صورة" className="w-full max-h-72 object-contain rounded-xl border bg-black/5" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end pt-2 border-t">
+              <button onClick={() => setIsPhotoModalOpen(false)} className="px-5 py-2 bg-gray-100 text-gray-700 text-xs font-bold rounded-xl">إغلاق</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* عرض تبويب الكهرباء */}
       {activeTab === "electric" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -958,7 +1076,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                   {Array.isArray(park.electricMeters) && park.electricMeters.map((m: any) => (
                     <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
                       <span className="font-medium text-gray-700">{getDeviceName(m)} ({getDeviceCode(m)})</span>
-                      <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} kWh</span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); openPhotoModal(m); }} className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-[11px] font-bold">📷 صور</button>
+                        <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} kWh</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -980,7 +1101,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                   {Array.isArray(park.meters) && park.meters.map((m: any) => (
                     <div key={m.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
                       <span className="font-medium text-gray-700">{getDeviceName(m)}</span>
-                      <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} m³</span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); openPhotoModal(m); }} className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-[11px] font-bold">📷 صور</button>
+                        <span className="font-bold text-blue-600">{Math.round(Number(m.consumption || 0)).toLocaleString()} m³</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1043,8 +1167,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                         <div key={k.id} className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 text-xs">
                           <span className="font-medium text-gray-700">{getDeviceName(k)} ({getDeviceCode(k)})</span>
                           <div className="flex items-center gap-2">
+                            <button onClick={(e) => { e.stopPropagation(); openPhotoModal(k); }} className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-[11px] font-bold">📷 صور</button>
                             <span className="font-bold text-amber-600">{Math.round(Number(k.consumption || 0)).toLocaleString()} kWh</span>
-                            <span className={`w-2 h-2 rounded-full ${Number(k.consumption || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
                           </div>
                         </div>
                       );
