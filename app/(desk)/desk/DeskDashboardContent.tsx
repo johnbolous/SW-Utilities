@@ -160,7 +160,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   // بيانات الأكشاك من جدول kiosks في الداتا بيز
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
-  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(new Map());
 
   // جلب الأكشاك وقراءاتها مباشرة باستخدام park_id المطابق لجدولك
   useEffect(() => {
@@ -216,7 +216,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     fetchKiosksAndReadings();
   }, []);
 
-  // ربط الأكشاك بمناطقها عبر park_id بناءً على هيكل جدول kiosks
+  // ربط الأكشاك بمناطقها عبر park_id مع معالجة مرنة
   const rawParksKiosks = useMemo(() => {
     if (!rawParksElec || !Array.isArray(rawParksElec)) return [];
     return rawParksElec.map((park: any) => {
@@ -256,9 +256,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [selectedPhotoMonth, setSelectedPhotoMonth] = useState<string>("");
 
   // Monthly consumption delta maps
-  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
-  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
-  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState>(new Map());
+  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState>(new Map());
+  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState>(new Map());
 
   useEffect(() => {
     if (currentRawParks && Array.isArray(currentRawParks) && currentRawParks.length > 0) {
@@ -286,7 +286,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [consumptionChartData, setConsumptionChartData] = useState<any[]>([]);
   const [isConsumptionLoading, setIsConsumptionLoading] = useState(false);
 
-  // Fetch readings for monthly delta / sum calculations including kiosks
+  // Fetch readings for monthly delta / sum calculations
   useEffect(() => {
     const fetchAllReadingsForCalculations = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -427,7 +427,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return item?.code || item?.meter_code || item?.id || "";
   };
 
-  // استخراج وتقسيم التنبيهات (عاجل وهام / ملاحظات عامة)
+  // استخراج وتقسيم التنبيهات
   const categorizedAlerts = useMemo(() => {
     const important: { id: string; title: string; message: string }[] = [];
     const normal: { id: string; title: string; message: string }[] = [];
@@ -686,19 +686,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
               park.meters.forEach((m: any) => {
                 const cat = String(m?.category || "").trim().toUpperCase();
                 if (m?.id && (cat === "MEDIUM" || cat === "MED" || cat.includes("MEDIUM") || !cat)) {
-                  meterIds.push(m.id);
-                  meterToParkMap.set(m.id, park.id);
-                }
-              });
-            }
-          });
-        }
-
-        if (meterIds.length === 0 && Array.isArray(rawParksElec)) {
-          rawParksElec.forEach((park: any) => {
-            if (park && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
-              park.meters.forEach((m: any) => {
-                if (m?.id) {
                   meterIds.push(m.id);
                   meterToParkMap.set(m.id, park.id);
                 }
@@ -1785,7 +1772,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* عرض تفاصيل الطاقة الشمسية (بدون كود بجانب اسم الانفرتر) */}
+      {/* عرض تفاصيل الطاقة الشمسية */}
       {activeTab === "solar" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {processedSolarData.map((park: any) => {
