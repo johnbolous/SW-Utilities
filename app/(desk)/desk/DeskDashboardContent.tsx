@@ -253,7 +253,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState>(() => new Map());
   const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState>(() => new Map());
 
-  // التعريفات الآمنة تماماً بدون علامة الأكبر من (>)
+  // التعريفات الآمنة للـ Maps بدون أي علامات أكبر من (>)
   const [A, k] = useState>(() => new Map());
   const [H, J] = useState>(() => new Map());
   const [Q, G] = useState>(() => new Map());
