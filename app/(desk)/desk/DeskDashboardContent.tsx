@@ -152,16 +152,15 @@ function calculateSolarConsumptionsForAllInverters(readings: any[]) {
 export default function DeskDashboardContent({ data }: { data: any }) {
   const [activeTab, setActiveTab] = useState<"electric" | "water" | "solar" | "kiosks">("electric");
 
-  const parkNames = Array.isArray(data?.parkNames) ? data.parkNames : [];
+  const parkNames = data?.parkNames || [];
   const summary = data?.summary || {};
-  const rawParksElec = Array.isArray(data?.parksDailyElec) ? data.parksDailyElec : [];
-  const rawParksWater = Array.isArray(data?.parksWaterData) ? data.parksWaterData : [];
-  const rawParksSolar = Array.isArray(data?.parksSolarData) ? data.parksSolarData : [];
+  const rawParksElec = data?.parksDailyElec || [];
+  const rawParksWater = data?.parksWaterData || [];
+  const rawParksSolar = data?.parksSolarData || [];
 
   // بيانات الأكشاك من جدول kiosks في الداتا بيز
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
-  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(new Map());
-  const [directKiosksCount, setDirectKiosksCount] = useState<number>(0);
+  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
 
   // جلب الأكشاك وقراءاتها مباشرة باستخدام park_id المطابق لجدولك
   useEffect(() => {
@@ -175,18 +174,13 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       try {
-        const { count, error: countErr } = await supabase.from("kiosks").select("*", { count: "exact", head: true });
-        if (!countErr && count !== null) {
-          setDirectKiosksCount(count);
-        }
-
         const { data: kiosksRows, error: kiosksErr } = await supabase.from("kiosks").select("*");
         if (kiosksErr) {
           console.error("Error fetching kiosks:", kiosksErr);
           return;
         }
 
-        if (Array.isArray(kiosksRows) && kiosksRows.length > 0) {
+        if (kiosksRows && kiosksRows.length > 0) {
           const kioskIds = kiosksRows.map(k => k.id);
           
           const { data: kioskReadings, error: readingsErr } = await supabase
@@ -194,7 +188,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             .select("*")
             .in("kiosk_id", kioskIds);
 
-          if (!readingsErr && Array.isArray(kioskReadings)) {
+          if (!readingsErr && kioskReadings) {
             const readingsMap = new Map();
             kioskReadings.forEach(r => {
               const kId = r.kiosk_id;
@@ -224,10 +218,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   // ربط الأكشاك بمناطقها عبر park_id بناءً على هيكل جدول kiosks
   const rawParksKiosks = useMemo(() => {
-    if (!Array.isArray(rawParksElec)) return [];
+    if (!rawParksElec || !Array.isArray(rawParksElec)) return [];
     return rawParksElec.map((park: any) => {
       const parkId = park?.id;
-      const parkKiosks = Array.isArray(kiosksTableData) ? kiosksTableData.filter(k => String(k?.park_id) === String(parkId)) : [];
+      const parkKiosks = kiosksTableData.filter(k => String(k?.park_id) === String(parkId));
       return {
         ...park,
         kiosks: parkKiosks
@@ -246,7 +240,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [selectedCategory, setSelectedCategory] = useState("MEDIUM");
   
   const [selectedParkIds, setSelectedParkIds] = useState<string[]>(() => {
-    return Array.isArray(rawParksElec) && rawParksElec.length > 0 ? rawParksElec.map((p: any) => p.id) : [];
+    return rawParksElec && rawParksElec.length > 0 ? rawParksElec.map((p: any) => p.id) : [];
   });
 
   // التحكم في حالة الإشعارات والتبويبات
@@ -262,12 +256,12 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [selectedPhotoMonth, setSelectedPhotoMonth] = useState<string>("");
 
   // Monthly consumption delta maps
-  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState>(new Map());
-  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState>(new Map());
-  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState>(new Map());
+  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
 
   useEffect(() => {
-    if (Array.isArray(currentRawParks) && currentRawParks.length > 0) {
+    if (currentRawParks && Array.isArray(currentRawParks) && currentRawParks.length > 0) {
       const newIds = currentRawParks.map((p: any) => p?.id).filter(Boolean);
       setSelectedParkIds(newIds);
     }
@@ -315,7 +309,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
         if (elecMeterIds.length > 0) {
           const { data: elecReadings } = await supabase.from("electric_readings").select("*").in("meter_id", elecMeterIds);
-          if (Array.isArray(elecReadings)) {
+          if (elecReadings) {
             setMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecReadings, "meter_id"));
           }
         }
@@ -331,7 +325,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
         if (waterMeterIds.length > 0) {
           const { data: waterReadings } = await supabase.from("water_readings").select("*").in("water_meter_id", waterMeterIds);
-          if (Array.isArray(waterReadings)) {
+          if (waterReadings) {
             setWaterMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(waterReadings, "water_meter_id"));
           }
         }
@@ -347,7 +341,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
         if (inverterIds.length > 0) {
           const { data: solarReadings } = await supabase.from("solar_production").select("*").in("inverter_id", inverterIds);
-          if (Array.isArray(solarReadings)) {
+          if (solarReadings) {
             setSolarMonthlyConsumptions(calculateSolarConsumptionsForAllInverters(solarReadings));
           }
         }
@@ -358,7 +352,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
     fetchAllReadingsForCalculations();
   }, [rawParksElec, rawParksWater, rawParksSolar]);
-const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") => {
+
+  const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") => {
     setDemandTimeFrame(frame);
     const now = Date.now();
     const end = new Date(now).toISOString().split("T")[0];
@@ -532,7 +527,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
           sortBy: { column: 'name', order: 'desc' },
         });
 
-      if (!storageError && Array.isArray(storageFiles) && storageFiles.length > 0) {
+      if (!storageError && storageFiles && storageFiles.length > 0) {
         storageFiles.forEach((file: any) => {
           if (file?.name && file.name !== ".emptyFolderPlaceholder") {
             const filePath = `${targetPath}/${file.name}`;
@@ -563,7 +558,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
           .eq("meter_id", meter.id)
           .order("created_at", { ascending: false });
 
-        if (Array.isArray(dbPhotos) && dbPhotos.length > 0) {
+        if (dbPhotos && dbPhotos.length > 0) {
           dbPhotos.forEach((p: any) => {
             const pUrl = p?.url || p?.image_url || p?.file_path || p?.path;
             if (pUrl && !fetchedPhotos.some(fp => fp.url === pUrl)) {
@@ -602,7 +597,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
       setIsChartLoading(true);
 
       try {
-        if (!Array.isArray(selectedParkIds) || selectedParkIds.length === 0) {
+        if (!selectedParkIds || selectedParkIds.length === 0) {
           setChartData([]);
           setDistributorRows([]);
           setIsChartLoading(false);
@@ -620,7 +615,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
           .lte("reading_timestamp", endIso)
           .order("reading_timestamp", { ascending: true });
 
-        if (error || !Array.isArray(rows)) {
+        if (error || !rows) {
           setChartData([]);
           setDistributorRows([]);
           setIsChartLoading(false);
@@ -687,7 +682,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
 
         if (Array.isArray(rawParksElec)) {
           rawParksElec.forEach((park: any) => {
-            if (park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
+            if (park && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
               park.meters.forEach((m: any) => {
                 const cat = String(m?.category || "").trim().toUpperCase();
                 if (m?.id && (cat === "MEDIUM" || cat === "MED" || cat.includes("MEDIUM") || !cat)) {
@@ -701,7 +696,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
 
         if (meterIds.length === 0 && Array.isArray(rawParksElec)) {
           rawParksElec.forEach((park: any) => {
-            if (park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
+            if (park && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
               park.meters.forEach((m: any) => {
                 if (m?.id) {
                   meterIds.push(m.id);
@@ -723,7 +718,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
           .select("*")
           .in("meter_id", meterIds);
 
-        if (error || !Array.isArray(readings) || readings.length === 0) {
+        if (error || !readings || readings.length === 0) {
           setConsumptionChartData([]);
           setIsConsumptionLoading(false);
           return;
@@ -883,9 +878,9 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
   const processedElecData = useMemo(() => {
     if (!Array.isArray(rawParksElec)) return [];
     return rawParksElec
-      .filter((park: any) => park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id))
+      .filter((park: any) => park && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const allMeters = Array.isArray(park?.meters) ? park.meters : [];
+        const allMeters = park?.meters || [];
         const electricMeters = allMeters.filter((m: any) => {
           const cat = String(m?.category || "").trim().toUpperCase();
           if (selectedCategory.toUpperCase() === "MEDIUM") {
@@ -918,9 +913,9 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
   const processedWaterData = useMemo(() => {
     if (!Array.isArray(rawParksWater)) return [];
     return rawParksWater
-      .filter((park: any) => park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id))
+      .filter((park: any) => park && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const meters = Array.isArray(park?.meters) ? park.meters : [];
+        const meters = park?.meters || [];
         const waterDaily = meters.reduce((sum: number, m: any) => sum + Number(m?.consumption || 0), 0);
         const waterTotal = meters.reduce((sum: number, m: any) => {
           const waterMonthlyMap = waterMeterMonthlyConsumptions.get(m?.id);
@@ -942,9 +937,9 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
   const processedSolarData = useMemo(() => {
     if (!Array.isArray(rawParksSolar)) return [];
     return rawParksSolar
-      .filter((park: any) => park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id))
+      .filter((park: any) => park && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const inverters = Array.isArray(park?.inverters) ? park.inverters : [];
+        const inverters = park?.inverters || [];
         const solarDaily = inverters.reduce((sum: number, i: any) => sum + Number(i?.yield || 0), 0);
         
         const solarTotal = inverters.reduce((sum: number, i: any) => {
@@ -967,9 +962,9 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
   const processedKiosksData = useMemo(() => {
     if (!Array.isArray(rawParksKiosks)) return [];
     return rawParksKiosks
-      .filter((park: any) => park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id))
+      .filter((park: any) => park && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const kiosksList = Array.isArray(park?.kiosks) ? park.kiosks : [];
+        const kiosksList = park?.kiosks || [];
         const kiosksDaily = kiosksList.reduce((sum: number, k: any) => sum + Number(k?.consumption || 0), 0);
         const kiosksTotal = kiosksList.reduce((sum: number, k: any) => {
           const kioskMap = kioskMonthlyConsumptions.get(k?.id);
@@ -1068,7 +1063,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
         meterIdField = "kiosk_id";
       }
 
-      const targetMeterIds = Array.isArray(selectedMeterIdsForExport) && selectedMeterIdsForExport.length > 0 
+      const targetMeterIds = selectedMeterIdsForExport.length > 0 
         ? selectedMeterIdsForExport 
         : currentItemsList.map(i => i.id);
 
@@ -1090,7 +1085,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
       }
 
       const readingsMap = new Map();
-      if (Array.isArray(fetchedReadings)) {
+      if (fetchedReadings) {
         fetchedReadings.forEach((row: any) => {
           const mId = row?.[meterIdField];
           const rawDate = row?.reading_date || row?.timestamp || row?.created_at || row?.date;
@@ -1117,7 +1112,6 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
       const dateRange = getDatesInRange(exportStartDate, exportEndDate);
 
       const processCsvRows = (items: any[], isSolar = false, isKiosk = false) => {
-        if (!Array.isArray(items)) return;
         items.forEach((park: any) => {
           const entityList = isSolar ? park?.inverters : (isKiosk ? park?.kiosks : (park?.electricMeters || park?.meters || []));
           if (Array.isArray(entityList)) {
@@ -1182,7 +1176,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
             Technology Park
           </span>
           <h1 className="text-xl font-bold text-slate-800">
-            {Array.isArray(parkNames) && parkNames.length > 0 ? parkNames.join(", ") : "No Parks Assigned"}
+            {parkNames.length > 0 ? parkNames.join(", ") : "No Parks Assigned"}
           </h1>
         </div>
 
@@ -1281,13 +1275,13 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
 
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap items-center gap-2">
         <span className="text-xs font-bold text-gray-500 ml-1">فلتر مناطق المخططات:</span>
-        {Array.isArray(currentRawParks) && currentRawParks.map((p: any) => {
+        {currentRawParks.map((p: any) => {
           if (!p) return null;
-          const isSelected = Array.isArray(selectedParkIds) && selectedParkIds.includes(p.id);
+          const isSelected = selectedParkIds.includes(p.id);
           return (
             <button 
               key={p.id} 
-              onClick={() => setSelectedParkIds(prev => Array.isArray(prev) ? (isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id]) : [p.id])}
+              onClick={() => setSelectedParkIds(prev => isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id])}
               className={`px-3 py-1 text-xs font-bold rounded-full border transition-all ${isSelected ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
             >
               {p.name}
@@ -1305,7 +1299,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
           </div>
 
           <div className="space-y-3 overflow-y-auto max-h-[300px] pr-1">
-            {Array.isArray(currentRawParks) && currentRawParks.map((park: any, idx: number) => {
+            {currentRawParks.map((park: any, idx: number) => {
               if (!park) return null;
               const latestData = latestParkReadingsMap.get(park.id);
               const latestVal = latestData ? latestData.val : 0;
@@ -1367,8 +1361,8 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
                 <YAxis stroke="#94a3b8" fontSize={10} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '5px' }} />
-                {Array.isArray(currentRawParks) && currentRawParks.map((park: any, idx: number) => {
-                  if (!park || !Array.isArray(selectedParkIds) || !selectedParkIds.includes(park.id)) return null;
+                {currentRawParks.map((park: any, idx: number) => {
+                  if (!park || !selectedParkIds.includes(park.id)) return null;
                   const color = parkColors[idx % parkColors.length];
                   return (
                     <Line key={park.id} type="monotone" dataKey={park.id} name={park.name} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 5 }} connectNulls />
@@ -1407,8 +1401,8 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
                 <YAxis stroke="#94a3b8" fontSize={10} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '5px' }} />
-                {Array.isArray(currentRawParks) && currentRawParks.map((park: any, idx: number) => {
-                  if (!park || !Array.isArray(selectedParkIds) || !selectedParkIds.includes(park.id)) return null;
+                {currentRawParks.map((park: any, idx: number) => {
+                  if (!park || !selectedParkIds.includes(park.id)) return null;
                   const color = parkColors[idx % parkColors.length];
                   return (
                     <Line key={park.id} type="monotone" dataKey={park.id} name={park.name} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 5 }} connectNulls />
@@ -1478,8 +1472,8 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
             <span className="text-2xl font-black text-gray-800">{summary?.buildingsCount || 0}</span>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
-            <span className="text-xs text-gray-500 font-bold block mb-1">Kiosks</span>
-            <span className="text-2xl font-black text-gray-800">{summary?.kiosksCount || directKiosksCount || 0}</span>
+            <span className="text-xs text-gray-500 font-bold block mb-1">Floors</span>
+            <span className="text-2xl font-black text-gray-800">{summary?.floorCount || 0}</span>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center">
             <span className="text-xs text-gray-500 font-bold block mb-1">Electric Meters</span>
@@ -1499,25 +1493,25 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
       {/* أزرار التبويبات الأربعة المتكاملة */}
       <div className="flex bg-gray-100 p-1.5 rounded-2xl gap-2 shadow-inner">
         <button
-          onClick={() => { setActiveTab("electric"); setSelectedParkIds(Array.isArray(rawParksElec) ? rawParksElec.map((p: any) => p?.id).filter(Boolean) : []); setSelectedMeterIdsForExport([]); }}
+          onClick={() => { setActiveTab("electric"); setSelectedParkIds(rawParksElec.map((p: any) => p?.id).filter(Boolean)); setSelectedMeterIdsForExport([]); }}
           className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "electric" ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}
         >
           ⚡ استهلاك الكهرباء (Electricity)
         </button>
         <button
-          onClick={() => { setActiveTab("water"); setSelectedParkIds(Array.isArray(rawParksWater) ? rawParksWater.map((p: any) => p?.id).filter(Boolean) : []); setSelectedMeterIdsForExport([]); }}
+          onClick={() => { setActiveTab("water"); setSelectedParkIds(rawParksWater.map((p: any) => p?.id).filter(Boolean)); setSelectedMeterIdsForExport([]); }}
           className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "water" ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}
         >
           💧 استهلاك المياه (Water)
         </button>
         <button
-          onClick={() => { setActiveTab("solar"); setSelectedParkIds(Array.isArray(rawParksSolar) ? rawParksSolar.map((p: any) => p?.id).filter(Boolean) : []); setSelectedMeterIdsForExport([]); }}
+          onClick={() => { setActiveTab("solar"); setSelectedParkIds(rawParksSolar.map((p: any) => p?.id).filter(Boolean)); setSelectedMeterIdsForExport([]); }}
           className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "solar" ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}
         >
           ☀️ الطاقة الشمسية (Solar Energy)
         </button>
         <button
-          onClick={() => { setActiveTab("kiosks"); setSelectedParkIds(Array.isArray(rawParksKiosks) ? rawParksKiosks.map((p: any) => p?.id).filter(Boolean) : []); setSelectedMeterIdsForExport([]); }}
+          onClick={() => { setActiveTab("kiosks"); setSelectedParkIds(rawParksKiosks.map((p: any) => p?.id).filter(Boolean)); setSelectedMeterIdsForExport([]); }}
           className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "kiosks" ? 'bg-amber-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}
         >
           🏪 الأكشاك (Kiosks)
@@ -1542,13 +1536,13 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
         <div className="w-full flex-1">
           <label className="block text-xs font-bold mb-1.5 text-gray-700">📍 متابعة مناطق:</label>
           <div className="flex flex-wrap gap-1.5 items-center">
-            {Array.isArray(currentRawParks) && currentRawParks.map((p: any) => {
+            {currentRawParks.map((p: any) => {
               if (!p) return null;
-              const isSelected = Array.isArray(selectedParkIds) && selectedParkIds.includes(p.id);
+              const isSelected = selectedParkIds.includes(p.id);
               return (
                 <button 
                   key={p.id} 
-                  onClick={() => setSelectedParkIds(prev => Array.isArray(prev) ? (isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id]) : [p.id])}
+                  onClick={() => setSelectedParkIds(prev => isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id])}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${isSelected ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                 >
                   {p.name}
@@ -1595,16 +1589,16 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
                 </button>
               </div>
               <div className="max-h-40 overflow-y-auto border rounded-xl p-2 space-y-1.5 bg-gray-50">
-                {Array.isArray(currentItemsList) && currentItemsList.map((item: any) => {
-                  const isChecked = Array.isArray(selectedMeterIdsForExport) && selectedMeterIdsForExport.includes(item.id);
+                {currentItemsList.map((item: any) => {
+                  const isChecked = selectedMeterIdsForExport.includes(item.id);
                   return (
                     <label key={item.id} className="flex items-center gap-2 text-xs p-1.5 hover:bg-gray-100 rounded cursor-pointer">
                       <input 
                         type="checkbox" 
                         checked={isChecked}
                         onChange={(e) => {
-                          if (e.target.checked) setSelectedMeterIdsForExport(prev => Array.isArray(prev) ? [...prev, item.id] : [item.id]);
-                          else setSelectedMeterIdsForExport(prev => Array.isArray(prev) ? prev.filter(id => id !== item.id) : []);
+                          if (e.target.checked) setSelectedMeterIdsForExport(prev => [...prev, item.id]);
+                          else setSelectedMeterIdsForExport(prev => prev.filter(id => id !== item.id));
                         }}
                         className="rounded text-blue-600"
                       />
@@ -1641,7 +1635,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
 
             {isLoadingPhotos ? (
               <div className="py-12 text-center text-xs text-gray-500 font-bold">جاري جلب الصور من خوادم التخزين...</div>
-            ) : Array.isArray(meterPhotosList) && meterPhotosList.length === 0 ? (
+            ) : meterPhotosList.length === 0 ? (
               <div className="py-12 text-center text-xs text-gray-400">لا توجد صور مخزنة حتى الآن.</div>
             ) : (
               <div className="space-y-4">
@@ -1659,7 +1653,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
                 </div>
 
                 <div className="max-h-[400px] overflow-y-auto space-y-3">
-                  {Array.isArray(meterPhotosList) && meterPhotosList
+                  {meterPhotosList
                     .filter(p => {
                       const pDate = p?.created_at || "";
                       return !selectedPhotoMonth || pDate.startsWith(selectedPhotoMonth);
@@ -1698,7 +1692,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
       {/* عرض تفاصيل الكهرباء */}
       {activeTab === "electric" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {Array.isArray(processedElecData) && processedElecData.map((park: any) => {
+          {processedElecData.map((park: any) => {
             if (!park) return null;
             return (
               <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
@@ -1748,7 +1742,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
       {/* عرض تفاصيل المياه */}
       {activeTab === "water" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {Array.isArray(processedWaterData) && processedWaterData.map((park: any) => {
+          {processedWaterData.map((park: any) => {
             if (!park) return null;
             return (
               <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
@@ -1791,10 +1785,10 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
         </div>
       )}
 
-      {/* عرض تفاصيل الطاقة الشمسية */}
+      {/* عرض تفاصيل الطاقة الشمسية (بدون كود بجانب اسم الانفرتر) */}
       {activeTab === "solar" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {Array.isArray(processedSolarData) && processedSolarData.map((park: any) => {
+          {processedSolarData.map((park: any) => {
             if (!park) return null;
             return (
               <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
@@ -1837,7 +1831,7 @@ const handleDemandTimeFrameChange = (frame: "day" | "week" | "month" | "year") =
       {/* عرض تفاصيل الأكشاك المرتبطة بالمنطقة عبر park_id */}
       {activeTab === "kiosks" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {Array.isArray(processedKiosksData) && processedKiosksData.map((park: any) => {
+          {processedKiosksData.map((park: any) => {
             if (!park) return null;
             return (
               <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
