@@ -152,17 +152,15 @@ function calculateSolarConsumptionsForAllInverters(readings: any[]) {
 export default function DeskDashboardContent({ data }: { data: any }) {
   const [activeTab, setActiveTab] = useState<"electric" | "water" | "solar" | "kiosks">("electric");
 
-  const parkNames = data?.parkNames || [];
+  const parkNames = Array.isArray(data?.parkNames) ? data.parkNames : [];
   const summary = data?.summary || {};
-  const rawParksElec = data?.parksDailyElec || [];
-  const rawParksWater = data?.parksWaterData || [];
-  const rawParksSolar = data?.parksSolarData || [];
+  const rawParksElec = Array.isArray(data?.parksDailyElec) ? data.parksDailyElec : [];
+  const rawParksWater = Array.isArray(data?.parksWaterData) ? data.parksWaterData : [];
+  const rawParksSolar = Array.isArray(data?.parksSolarData) ? data.parksSolarData : [];
 
-  // بيانات الأكشاك من جدول kiosks في الداتا بيز
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
-  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(new Map());
 
-  // جلب الأكشاك وقراءاتها مباشرة باستخدام park_id المطابق لجدولك
   useEffect(() => {
     const fetchKiosksAndReadings = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -180,7 +178,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           return;
         }
 
-        if (kiosksRows && kiosksRows.length > 0) {
+        if (Array.isArray(kiosksRows) && kiosksRows.length > 0) {
           const kioskIds = kiosksRows.map(k => k.id);
           
           const { data: kioskReadings, error: readingsErr } = await supabase
@@ -188,7 +186,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
             .select("*")
             .in("kiosk_id", kioskIds);
 
-          if (!readingsErr && kioskReadings) {
+          if (!readingsErr && Array.isArray(kioskReadings)) {
             const readingsMap = new Map();
             kioskReadings.forEach(r => {
               const kId = r.kiosk_id;
@@ -216,12 +214,11 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     fetchKiosksAndReadings();
   }, []);
 
-  // ربط الأكشاك بمناطقها عبر park_id بناءً على هيكل جدول kiosks
   const rawParksKiosks = useMemo(() => {
-    if (!rawParksElec || !Array.isArray(rawParksElec)) return [];
+    if (!Array.isArray(rawParksElec)) return [];
     return rawParksElec.map((park: any) => {
       const parkId = park?.id;
-      const parkKiosks = kiosksTableData.filter(k => String(k?.park_id) === String(parkId));
+      const parkKiosks = Array.isArray(kiosksTableData) ? kiosksTableData.filter(k => String(k?.park_id) === String(parkId)) : [];
       return {
         ...park,
         kiosks: parkKiosks
@@ -240,35 +237,32 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [selectedCategory, setSelectedCategory] = useState("MEDIUM");
   
   const [selectedParkIds, setSelectedParkIds] = useState<string[]>(() => {
-    return rawParksElec && rawParksElec.length > 0 ? rawParksElec.map((p: any) => p.id) : [];
+    return Array.isArray(rawParksElec) && rawParksElec.length > 0 ? rawParksElec.map((p: any) => p.id) : [];
   });
 
-  // التحكم في حالة الإشعارات والتبويبات
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notificationTab, setNotificationTab] = useState<"important" | "normal">("important");
   const [hasUnread, setHasUnread] = useState(true);
 
-  // Photo modal states
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [currentMeterForPhoto, setCurrentMeterForPhoto] = useState<any>(null);
   const [meterPhotosList, setMeterPhotosList] = useState<any[]>([]);
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
   const [selectedPhotoMonth, setSelectedPhotoMonth] = useState<string>("");
 
-  // Monthly consumption delta maps
-  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
-  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
-  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState>(() => new Map());
+  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState>(() => new Map());
+  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState>(() => new Map());
 
   useEffect(() => {
-    if (currentRawParks && Array.isArray(currentRawParks) && currentRawParks.length > 0) {
+    if (Array.isArray(currentRawParks) && currentRawParks.length > 0) {
       const newIds = currentRawParks.map((p: any) => p?.id).filter(Boolean);
       setSelectedParkIds(newIds);
     }
   }, [activeTab, data]);
 
   const todayStr = new Date().toISOString().split("T")[0];
-  const currentMonthKey = todayStr.slice(0, 7); // "YYYY-MM"
+  const currentMonthKey = todayStr.slice(0, 7);
   const thirtyDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   const [demandTimeFrame, setDemandTimeFrame] = useState<"day" | "week" | "month" | "year">("week");
@@ -286,7 +280,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [consumptionChartData, setConsumptionChartData] = useState<any[]>([]);
   const [isConsumptionLoading, setIsConsumptionLoading] = useState(false);
 
-  // Fetch readings for monthly delta / sum calculations including kiosks
   useEffect(() => {
     const fetchAllReadingsForCalculations = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -298,7 +291,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       try {
-        // Electric readings
         const elecMeterIds: string[] = [];
         if (Array.isArray(rawParksElec)) {
           rawParksElec.forEach((park: any) => {
@@ -309,12 +301,11 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
         if (elecMeterIds.length > 0) {
           const { data: elecReadings } = await supabase.from("electric_readings").select("*").in("meter_id", elecMeterIds);
-          if (elecReadings) {
+          if (Array.isArray(elecReadings)) {
             setMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(elecReadings, "meter_id"));
           }
         }
 
-        // Water readings
         const waterMeterIds: string[] = [];
         if (Array.isArray(rawParksWater)) {
           rawParksWater.forEach((park: any) => {
@@ -325,12 +316,11 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
         if (waterMeterIds.length > 0) {
           const { data: waterReadings } = await supabase.from("water_readings").select("*").in("water_meter_id", waterMeterIds);
-          if (waterReadings) {
+          if (Array.isArray(waterReadings)) {
             setWaterMeterMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(waterReadings, "water_meter_id"));
           }
         }
 
-        // Solar production
         const inverterIds: string[] = [];
         if (Array.isArray(rawParksSolar)) {
           rawParksSolar.forEach((park: any) => {
@@ -341,7 +331,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
         if (inverterIds.length > 0) {
           const { data: solarReadings } = await supabase.from("solar_production").select("*").in("inverter_id", inverterIds);
-          if (solarReadings) {
+          if (Array.isArray(solarReadings)) {
             setSolarMonthlyConsumptions(calculateSolarConsumptionsForAllInverters(solarReadings));
           }
         }
@@ -427,7 +417,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return item?.code || item?.meter_code || item?.id || "";
   };
 
-  // استخراج وتقسيم التنبيهات (عاجل وهام / ملاحظات عامة)
   const categorizedAlerts = useMemo(() => {
     const important: { id: string; title: string; message: string }[] = [];
     const normal: { id: string; title: string; message: string }[] = [];
@@ -527,7 +516,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           sortBy: { column: 'name', order: 'desc' },
         });
 
-      if (!storageError && storageFiles && storageFiles.length > 0) {
+      if (!storageError && Array.isArray(storageFiles) && storageFiles.length > 0) {
         storageFiles.forEach((file: any) => {
           if (file?.name && file.name !== ".emptyFolderPlaceholder") {
             const filePath = `${targetPath}/${file.name}`;
@@ -558,7 +547,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           .eq("meter_id", meter.id)
           .order("created_at", { ascending: false });
 
-        if (dbPhotos && dbPhotos.length > 0) {
+        if (Array.isArray(dbPhotos) && dbPhotos.length > 0) {
           dbPhotos.forEach((p: any) => {
             const pUrl = p?.url || p?.image_url || p?.file_path || p?.path;
             if (pUrl && !fetchedPhotos.some(fp => fp.url === pUrl)) {
@@ -597,7 +586,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       setIsChartLoading(true);
 
       try {
-        if (!selectedParkIds || selectedParkIds.length === 0) {
+        if (!Array.isArray(selectedParkIds) || selectedParkIds.length === 0) {
           setChartData([]);
           setDistributorRows([]);
           setIsChartLoading(false);
@@ -615,7 +604,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           .lte("reading_timestamp", endIso)
           .order("reading_timestamp", { ascending: true });
 
-        if (error || !rows) {
+        if (error || !Array.isArray(rows)) {
           setChartData([]);
           setDistributorRows([]);
           setIsChartLoading(false);
@@ -682,7 +671,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
         if (Array.isArray(rawParksElec)) {
           rawParksElec.forEach((park: any) => {
-            if (park && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
+            if (park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
               park.meters.forEach((m: any) => {
                 const cat = String(m?.category || "").trim().toUpperCase();
                 if (m?.id && (cat === "MEDIUM" || cat === "MED" || cat.includes("MEDIUM") || !cat)) {
@@ -696,7 +685,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
         if (meterIds.length === 0 && Array.isArray(rawParksElec)) {
           rawParksElec.forEach((park: any) => {
-            if (park && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
+            if (park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
               park.meters.forEach((m: any) => {
                 if (m?.id) {
                   meterIds.push(m.id);
@@ -718,7 +707,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           .select("*")
           .in("meter_id", meterIds);
 
-        if (error || !readings || readings.length === 0) {
+        if (error || !Array.isArray(readings) || readings.length === 0) {
           setConsumptionChartData([]);
           setIsConsumptionLoading(false);
           return;
@@ -878,9 +867,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const processedElecData = useMemo(() => {
     if (!Array.isArray(rawParksElec)) return [];
     return rawParksElec
-      .filter((park: any) => park && selectedParkIds.includes(park.id))
+      .filter((park: any) => park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const allMeters = park?.meters || [];
+        const allMeters = Array.isArray(park?.meters) ? park.meters : [];
         const electricMeters = allMeters.filter((m: any) => {
           const cat = String(m?.category || "").trim().toUpperCase();
           if (selectedCategory.toUpperCase() === "MEDIUM") {
@@ -913,9 +902,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const processedWaterData = useMemo(() => {
     if (!Array.isArray(rawParksWater)) return [];
     return rawParksWater
-      .filter((park: any) => park && selectedParkIds.includes(park.id))
+      .filter((park: any) => park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const meters = park?.meters || [];
+        const meters = Array.isArray(park?.meters) ? park.meters : [];
         const waterDaily = meters.reduce((sum: number, m: any) => sum + Number(m?.consumption || 0), 0);
         const waterTotal = meters.reduce((sum: number, m: any) => {
           const waterMonthlyMap = waterMeterMonthlyConsumptions.get(m?.id);
@@ -937,9 +926,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const processedSolarData = useMemo(() => {
     if (!Array.isArray(rawParksSolar)) return [];
     return rawParksSolar
-      .filter((park: any) => park && selectedParkIds.includes(park.id))
+      .filter((park: any) => park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const inverters = park?.inverters || [];
+        const inverters = Array.isArray(park?.inverters) ? park.inverters : [];
         const solarDaily = inverters.reduce((sum: number, i: any) => sum + Number(i?.yield || 0), 0);
         
         const solarTotal = inverters.reduce((sum: number, i: any) => {
@@ -962,9 +951,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const processedKiosksData = useMemo(() => {
     if (!Array.isArray(rawParksKiosks)) return [];
     return rawParksKiosks
-      .filter((park: any) => park && selectedParkIds.includes(park.id))
+      .filter((park: any) => park && Array.isArray(selectedParkIds) && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const kiosksList = park?.kiosks || [];
+        const kiosksList = Array.isArray(park?.kiosks) ? park.kiosks : [];
         const kiosksDaily = kiosksList.reduce((sum: number, k: any) => sum + Number(k?.consumption || 0), 0);
         const kiosksTotal = kiosksList.reduce((sum: number, k: any) => {
           const kioskMap = kioskMonthlyConsumptions.get(k?.id);
@@ -1063,7 +1052,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         meterIdField = "kiosk_id";
       }
 
-      const targetMeterIds = selectedMeterIdsForExport.length > 0 
+      const targetMeterIds = Array.isArray(selectedMeterIdsForExport) && selectedMeterIdsForExport.length > 0 
         ? selectedMeterIdsForExport 
         : currentItemsList.map(i => i.id);
 
@@ -1085,7 +1074,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       }
 
       const readingsMap = new Map();
-      if (fetchedReadings) {
+      if (Array.isArray(fetchedReadings)) {
         fetchedReadings.forEach((row: any) => {
           const mId = row?.[meterIdField];
           const rawDate = row?.reading_date || row?.timestamp || row?.created_at || row?.date;
@@ -1112,6 +1101,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       const dateRange = getDatesInRange(exportStartDate, exportEndDate);
 
       const processCsvRows = (items: any[], isSolar = false, isKiosk = false) => {
+        if (!Array.isArray(items)) return;
         items.forEach((park: any) => {
           const entityList = isSolar ? park?.inverters : (isKiosk ? park?.kiosks : (park?.electricMeters || park?.meters || []));
           if (Array.isArray(entityList)) {
@@ -1169,14 +1159,13 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
-      {/* الشريط العلوي مع نظام التنبيهات المنسدل */}
       <div className="bg-slate-100 p-4 rounded-lg flex justify-between items-center border relative" dir="rtl">
         <div>
           <span className="text-xs text-slate-500 font-bold uppercase tracking-wider block">
             Technology Park
           </span>
           <h1 className="text-xl font-bold text-slate-800">
-            {parkNames.length > 0 ? parkNames.join(", ") : "No Parks Assigned"}
+            {Array.isArray(parkNames) && parkNames.length > 0 ? parkNames.join(", ") : "No Parks Assigned"}
           </h1>
         </div>
 
@@ -1275,13 +1264,13 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap items-center gap-2">
         <span className="text-xs font-bold text-gray-500 ml-1">فلتر مناطق المخططات:</span>
-        {currentRawParks.map((p: any) => {
+        {Array.isArray(currentRawParks) && currentRawParks.map((p: any) => {
           if (!p) return null;
-          const isSelected = selectedParkIds.includes(p.id);
+          const isSelected = Array.isArray(selectedParkIds) && selectedParkIds.includes(p.id);
           return (
             <button 
               key={p.id} 
-              onClick={() => setSelectedParkIds(prev => isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id])}
+              onClick={() => setSelectedParkIds(prev => Array.isArray(prev) ? (isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id]) : [p.id])}
               className={`px-3 py-1 text-xs font-bold rounded-full border transition-all ${isSelected ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
             >
               {p.name}
@@ -1299,7 +1288,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           </div>
 
           <div className="space-y-3 overflow-y-auto max-h-[300px] pr-1">
-            {currentRawParks.map((park: any, idx: number) => {
+            {Array.isArray(currentRawParks) && currentRawParks.map((park: any, idx: number) => {
               if (!park) return null;
               const latestData = latestParkReadingsMap.get(park.id);
               const latestVal = latestData ? latestData.val : 0;
@@ -1361,8 +1350,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                 <YAxis stroke="#94a3b8" fontSize={10} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '5px' }} />
-                {currentRawParks.map((park: any, idx: number) => {
-                  if (!park || !selectedParkIds.includes(park.id)) return null;
+                {Array.isArray(currentRawParks) && currentRawParks.map((park: any, idx: number) => {
+                  if (!park || !Array.isArray(selectedParkIds) || !selectedParkIds.includes(park.id)) return null;
                   const color = parkColors[idx % parkColors.length];
                   return (
                     <Line key={park.id} type="monotone" dataKey={park.id} name={park.name} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 5 }} connectNulls />
@@ -1401,8 +1390,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                 <YAxis stroke="#94a3b8" fontSize={10} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '5px' }} />
-                {currentRawParks.map((park: any, idx: number) => {
-                  if (!park || !selectedParkIds.includes(park.id)) return null;
+                {Array.isArray(currentRawParks) && currentRawParks.map((park: any, idx: number) => {
+                  if (!park || !Array.isArray(selectedParkIds) || !selectedParkIds.includes(park.id)) return null;
                   const color = parkColors[idx % parkColors.length];
                   return (
                     <Line key={park.id} type="monotone" dataKey={park.id} name={park.name} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 5 }} connectNulls />
@@ -1490,28 +1479,27 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       </div>
 
-      {/* أزرار التبويبات الأربعة المتكاملة */}
       <div className="flex bg-gray-100 p-1.5 rounded-2xl gap-2 shadow-inner">
         <button
-          onClick={() => { setActiveTab("electric"); setSelectedParkIds(rawParksElec.map((p: any) => p?.id).filter(Boolean)); setSelectedMeterIdsForExport([]); }}
+          onClick={() => { setActiveTab("electric"); setSelectedParkIds(Array.isArray(rawParksElec) ? rawParksElec.map((p: any) => p?.id).filter(Boolean) : []); setSelectedMeterIdsForExport([]); }}
           className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "electric" ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}
         >
           ⚡ استهلاك الكهرباء (Electricity)
         </button>
         <button
-          onClick={() => { setActiveTab("water"); setSelectedParkIds(rawParksWater.map((p: any) => p?.id).filter(Boolean)); setSelectedMeterIdsForExport([]); }}
+          onClick={() => { setActiveTab("water"); setSelectedParkIds(Array.isArray(rawParksWater) ? rawParksWater.map((p: any) => p?.id).filter(Boolean) : []); setSelectedMeterIdsForExport([]); }}
           className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "water" ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}
         >
           💧 استهلاك المياه (Water)
         </button>
         <button
-          onClick={() => { setActiveTab("solar"); setSelectedParkIds(rawParksSolar.map((p: any) => p?.id).filter(Boolean)); setSelectedMeterIdsForExport([]); }}
+          onClick={() => { setActiveTab("solar"); setSelectedParkIds(Array.isArray(rawParksSolar) ? rawParksSolar.map((p: any) => p?.id).filter(Boolean) : []); setSelectedMeterIdsForExport([]); }}
           className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "solar" ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}
         >
           ☀️ الطاقة الشمسية (Solar Energy)
         </button>
         <button
-          onClick={() => { setActiveTab("kiosks"); setSelectedParkIds(rawParksKiosks.map((p: any) => p?.id).filter(Boolean)); setSelectedMeterIdsForExport([]); }}
+          onClick={() => { setActiveTab("kiosks"); setSelectedParkIds(Array.isArray(rawParksKiosks) ? rawParksKiosks.map((p: any) => p?.id).filter(Boolean) : []); setSelectedMeterIdsForExport([]); }}
           className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === "kiosks" ? 'bg-amber-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-200'}`}
         >
           🏪 الأكشاك (Kiosks)
@@ -1536,13 +1524,13 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         <div className="w-full flex-1">
           <label className="block text-xs font-bold mb-1.5 text-gray-700">📍 متابعة مناطق:</label>
           <div className="flex flex-wrap gap-1.5 items-center">
-            {currentRawParks.map((p: any) => {
+            {Array.isArray(currentRawParks) && currentRawParks.map((p: any) => {
               if (!p) return null;
-              const isSelected = selectedParkIds.includes(p.id);
+              const isSelected = Array.isArray(selectedParkIds) && selectedParkIds.includes(p.id);
               return (
                 <button 
                   key={p.id} 
-                  onClick={() => setSelectedParkIds(prev => isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id])}
+                  onClick={() => setSelectedParkIds(prev => Array.isArray(prev) ? (isSelected ? prev.filter(i => i !== p.id) : [...prev, p.id]) : [p.id])}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${isSelected ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                 >
                   {p.name}
@@ -1589,16 +1577,16 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                 </button>
               </div>
               <div className="max-h-40 overflow-y-auto border rounded-xl p-2 space-y-1.5 bg-gray-50">
-                {currentItemsList.map((item: any) => {
-                  const isChecked = selectedMeterIdsForExport.includes(item.id);
+                {Array.isArray(currentItemsList) && currentItemsList.map((item: any) => {
+                  const isChecked = Array.isArray(selectedMeterIdsForExport) && selectedMeterIdsForExport.includes(item.id);
                   return (
                     <label key={item.id} className="flex items-center gap-2 text-xs p-1.5 hover:bg-gray-100 rounded cursor-pointer">
                       <input 
                         type="checkbox" 
                         checked={isChecked}
                         onChange={(e) => {
-                          if (e.target.checked) setSelectedMeterIdsForExport(prev => [...prev, item.id]);
-                          else setSelectedMeterIdsForExport(prev => prev.filter(id => id !== item.id));
+                          if (e.target.checked) setSelectedMeterIdsForExport(prev => Array.isArray(prev) ? [...prev, item.id] : [item.id]);
+                          else setSelectedMeterIdsForExport(prev => Array.isArray(prev) ? prev.filter(id => id !== item.id) : []);
                         }}
                         className="rounded text-blue-600"
                       />
@@ -1619,7 +1607,6 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* نافذة صور العدادات */}
       {isPhotoModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl" dir="rtl">
@@ -1635,7 +1622,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
             {isLoadingPhotos ? (
               <div className="py-12 text-center text-xs text-gray-500 font-bold">جاري جلب الصور من خوادم التخزين...</div>
-            ) : meterPhotosList.length === 0 ? (
+            ) : !Array.isArray(meterPhotosList) || meterPhotosList.length === 0 ? (
               <div className="py-12 text-center text-xs text-gray-400">لا توجد صور مخزنة حتى الآن.</div>
             ) : (
               <div className="space-y-4">
@@ -1689,10 +1676,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* عرض تفاصيل الكهرباء */}
       {activeTab === "electric" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {processedElecData.map((park: any) => {
+          {Array.isArray(processedElecData) && processedElecData.map((park: any) => {
             if (!park) return null;
             return (
               <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
@@ -1739,10 +1725,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* عرض تفاصيل المياه */}
       {activeTab === "water" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {processedWaterData.map((park: any) => {
+          {Array.isArray(processedWaterData) && processedWaterData.map((park: any) => {
             if (!park) return null;
             return (
               <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
@@ -1785,10 +1770,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* عرض تفاصيل الطاقة الشمسية (بدون كود بجانب اسم الانفرتر) */}
       {activeTab === "solar" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {processedSolarData.map((park: any) => {
+          {Array.isArray(processedSolarData) && processedSolarData.map((park: any) => {
             if (!park) return null;
             return (
               <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
@@ -1828,10 +1812,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* عرض تفاصيل الأكشاك المرتبطة بالمنطقة عبر park_id */}
       {activeTab === "kiosks" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {processedKiosksData.map((park: any) => {
+          {Array.isArray(processedKiosksData) && processedKiosksData.map((park: any) => {
             if (!park) return null;
             return (
               <div key={park.id} className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 space-y-4">
