@@ -35,19 +35,22 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (sortOrder !== undefined) updateData.sort_order = sortOrder;
 
   const supabase = createAdminClient();
+  
+  // تم إزالة .single() لتجنب خطأ الـ 500 واستخدام المصفوفة بأمان
   const { data, error } = await supabase
     .from("meters")
-    .update(updateData as any) // حل مشكلة تعارض الأنواع مع TypeScript
+    .update(updateData as any)
     .eq("id", id)
-    .select()
-    .single();
+    .select();
 
   if (error) {
     return NextResponse.json({ error: "UPDATE_FAILED", detail: error.message }, { status: 500 });
   }
 
-  await logAudit(supabase, { actorId: admin.id, action: "meter_updated", tableName: "meters", recordId: id, newValue: data });
-  return NextResponse.json({ meter: data });
+  const updatedRecord = Array.isArray(data) ? data[0] : data;
+
+  await logAudit(supabase, { actorId: admin.id, action: "meter_updated", tableName: "meters", recordId: id, newValue: updatedRecord });
+  return NextResponse.json({ meter: updatedRecord });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
