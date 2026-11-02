@@ -149,14 +149,162 @@ function calculateSolarConsumptionsForAllInverters(readings: any[]) {
   return inverterMonthlyMap;
 }
 
+// هل العنصر (عداد / انفرتر / كشك) معطّل؟
+function isDisabledItem(item: any): boolean {
+  if (!item) return false;
+  if (item.is_active === false || item.active === false || item.enabled === false) return true;
+  if (item.is_disabled === true || item.disabled === true) return true;
+  const st = String(item.status ?? "").trim().toLowerCase();
+  return ["disabled", "disable", "inactive", "deactivated", "معطل", "متوقف"].includes(st);
+}
+
+// إزالة العناصر المعطّلة من قائمة المناطق (key = meters / inverters ...)
+function removeDisabledItems(parks: any, key: string, disabledIds: Set<string>) {
+  if (!Array.isArray(parks)) return [];
+  return parks.map((park: any) => {
+    if (!park || !Array.isArray(park[key])) return park;
+    return {
+      ...park,
+      [key]: park[key].filter(
+        (item: any) => !isDisabledItem(item) && !(item?.id && disabledIds.has(String(item.id)))
+      ),
+    };
+  });
+}
+
+function toUtcDay(dateStr: any): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr || ""));
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86400000;
+}
+
+function dayToMonthKey(day: number): string {
+  const d = new Date(day * 86400000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatKwh(n: any): string {
+  return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+// حساب استهلاك الأكشاك:
+// - كل قراءة تمثل حالة العداد في بداية يومها، والفرق بين قراءتين متتاليتين هو استهلاك الفترة بينهما.
+// - الفرق بيتوزع بالتساوي على أيام الفترة، وكل يوم بيروح لشهره (فقراءة 1 أكتوبر → 1 نوفمبر = استهلاك أكتوبر بالكامل).
+// - الاستهلاك اليومي = متوسط يومي لآخر فترة بين قراءتين (مش إجمالي الفترة كلها).
+function analyzeKioskReadings(readings: any[]) {
+  const result = new Map<
+    string,
+    { monthly: { [monthKey: string]: number }; dailyAverage: number; lastDate: string | null; lastValue: number | null }
+  >();
+  if (!Array.isArray(readings)) return result;
+
+  const byKiosk = new Map<string, any[]>();
+  readings.forEach((r) => {
+    if (!r?.kiosk_id) return;
+    if (!byKiosk.has(r.kiosk_id)) byKiosk.set(r.kiosk_id, []);
+    byKiosk.get(r.kiosk_id)!.push(r);
+  });
+
+  byKiosk.forEach((rows, kioskId) => {
+    // ترتيب بالتاريخ، ولو أكتر من قراءة في نفس اليوم بناخد آخر واحدة
+    const sorted = [...rows].sort((a, b) => {
+      const da = toUtcDay(a?.reading_date) ?? 0;
+      const db = toUtcDay(b?.reading_date) ?? 0;
+      if (da !== db) return da - db;
+      return new Date(a?.created_at || 0).getTime() - new Date(b?.created_at || 0).getTime();
+    });
+    const perDay = new Map<number, { value: number; consumption: any; date: string }>();
+    sorted.forEach((r) => {
+      const day = toUtcDay(r?.reading_date);
+      const value = Number(r?.current_value);
+      if (day === null || !Number.isFinite(value)) return;
+      perDay.set(day, { value, consumption: r?.consumption, date: String(r.reading_date).slice(0, 10) });
+    });
+
+    const days = [...perDay.keys()].sort((a, b) => a - b);
+    const monthly: { [monthKey: string]: number } = {};
+    let dailyAverage = 0;
+
+    for (let i = 1; i < days.length; i++) {
+      const prev = perDay.get(days[i - 1])!;
+      const cur = perDay.get(days[i])!;
+      let delta = cur.value - prev.value;
+      // قراءة أقل من السابقة (استبدال/تصفير عداد): مش بتتحسب استهلاك
+      if (delta < 0) delta = 0;
+      const span = Math.max(1, days[i] - days[i - 1]);
+      const perDayValue = delta / span;
+      for (let d = days[i - 1]; d < days[i - 1] + span; d++) {
+        const key = dayToMonthKey(d);
+        monthly[key] = (monthly[key] || 0) + perDayValue;
+      }
+      if (i === days.length - 1) dailyAverage = perDayValue;
+    }
+
+    const lastDay = days.length > 0 ? days[days.length - 1] : null;
+    const last = lastDay !== null ? perDay.get(lastDay)! : null;
+    result.set(kioskId, {
+      monthly,
+      dailyAverage,
+      lastDate: last ? last.date : null,
+      lastValue: last ? last.value : null,
+    });
+  });
+
+  return result;
+}
+
 export default function DeskDashboardContent({ data }: { data: any }) {
   const [activeTab, setActiveTab] = useState<"electric" | "water" | "solar" | "kiosks">("electric");
 
   const parkNames = data?.parkNames || [];
   const summary = data?.summary || {};
-  const rawParksElec = data?.parksDailyElec || [];
-  const rawParksWater = data?.parksWaterData || [];
-  const rawParksSolar = data?.parksSolarData || [];
+
+  // ids العناصر المعطّلة (disabled) من الداتا بيز، عشان متظهرش في الصفحة حتى لو السيرفر مبعتش حالتها
+  const [disabledIds, setDisabledIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const loadDisabledIds = async () => {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+      const supabaseKey =
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+      if (!supabaseUrl || !supabaseKey) return;
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      const ids = new Set<string>();
+      await Promise.all(
+        ["meters", "water_meters", "solar_inverters", "kiosks"].map(async (table) => {
+          try {
+            const { data: rows, error } = await supabase.from(table).select("*");
+            if (error) {
+              console.warn(`loadDisabledIds(${table}) failed:`, error.message);
+              return;
+            }
+            (rows || []).forEach((r: any) => {
+              if (r?.id && isDisabledItem(r)) ids.add(String(r.id));
+            });
+          } catch (e) {
+            console.warn(`loadDisabledIds(${table}) error:`, e);
+          }
+        })
+      );
+      if (ids.size > 0) setDisabledIds(ids);
+    };
+    loadDisabledIds();
+  }, []);
+
+  const rawParksElec = useMemo(
+    () => removeDisabledItems(data?.parksDailyElec, "meters", disabledIds),
+    [data?.parksDailyElec, disabledIds]
+  );
+  const rawParksWater = useMemo(
+    () => removeDisabledItems(data?.parksWaterData, "meters", disabledIds),
+    [data?.parksWaterData, disabledIds]
+  );
+  const rawParksSolar = useMemo(
+    () => removeDisabledItems(data?.parksSolarData, "inverters", disabledIds),
+    [data?.parksSolarData, disabledIds]
+  );
 
   // بيانات الأكشاك من جدول kiosks في الداتا بيز
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
@@ -187,42 +335,43 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           return;
         }
 
-        if (kiosksRows && kiosksRows.length > 0) {
-          const kioskIds = kiosksRows.map(k => k.id);
-          
-          const { data: kioskReadings, error: readingsErr } = await supabase
-            .from("kiosk_readings")
-            .select("*")
-            .in("kiosk_id", kioskIds);
+        // الأكشاك المعطّلة (is_active = false) متظهرش
+        const activeKiosks = kiosksRows.filter((k: any) => !isDisabledItem(k));
+        if (activeKiosks.length === 0) {
+          setKiosksTableData([]);
+          setKioskMonthlyConsumptions(new Map());
+          setKiosksLoadMessage("");
+          return;
+        }
 
-          if (readingsErr) {
-            console.error("Error fetching kiosk readings:", readingsErr);
-            setKiosksLoadMessage(`تم جلب الأكشاك لكن فشل جلب القراءات: ${readingsErr.message}`);
-          }
+        const kioskIds = activeKiosks.map((k: any) => k.id);
+        const { data: kioskReadings, error: readingsErr } = await supabase
+          .from("kiosk_readings")
+          .select("*")
+          .in("kiosk_id", kioskIds);
 
-          if (!readingsErr && kioskReadings) {
-            const readingsMap = new Map();
-            kioskReadings.forEach(r => {
-              const kId = r.kiosk_id;
-              const consumptionVal = Number(r?.consumption ?? (Number(r?.current_value || 0) - Number(r?.previous_value || 0)) ?? 0);
-              if (!readingsMap.has(kId) || new Date(r?.reading_date || 0).getTime() > new Date(readingsMap.get(kId).reading_date || 0).getTime()) {
-                readingsMap.set(kId, { consumption: consumptionVal, reading_date: r?.reading_date, current_value: r?.current_value });
-              }
-            });
+        if (readingsErr) {
+          console.error("Error fetching kiosk readings:", readingsErr);
+          setKiosksLoadMessage(`تم جلب الأكشاك لكن فشل جلب القراءات: ${readingsErr.message}`);
+        }
 
-            kiosksRows.forEach(k => {
-              const latest = readingsMap.get(k.id);
-              k.consumption = latest ? latest.consumption : 0;
-              k.last_reading_date = latest ? latest.reading_date : null;
-              k.last_reading_value = latest ? latest.current_value : null;
-            });
+        if (!readingsErr && kioskReadings) {
+          const analysis = analyzeKioskReadings(kioskReadings);
+          const monthlyMap = new Map<string, { [monthKey: string]: number }>();
 
-            setKioskMonthlyConsumptions(calculateMonthlyConsumptionsForAllMeters(kioskReadings, "kiosk_id"));
-          }
+          activeKiosks.forEach((k: any) => {
+            const info = analysis.get(k.id);
+            k.consumption = info ? info.dailyAverage : 0; // متوسط الاستهلاك اليومي لآخر فترة
+            k.last_reading_date = info ? info.lastDate : null;
+            k.last_reading_value = info ? info.lastValue : null;
+            if (info) monthlyMap.set(k.id, info.monthly);
+          });
 
-          setKiosksTableData(kiosksRows);
+          setKioskMonthlyConsumptions(monthlyMap);
           setKiosksLoadMessage("");
         }
+
+        setKiosksTableData(activeKiosks);
       } catch (err) {
         console.error("Error in fetchKiosksAndReadings:", err);
       }
@@ -982,6 +1131,24 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       });
   }, [rawParksSolar, selectedParkIds, solarMonthlyConsumptions, currentMonthKey]);
 
+  // الشهر اللي بيتعرض في "إجمالي الشهر": الشهر الحالي لو فيه استهلاك محسوب،
+  // وإلا آخر شهر مكتمل (لأن القراءات الشهرية بتكمّل حساب الشهر عند قراءة أول الشهر اللي بعده)
+  const kioskDisplayMonthKey = useMemo(() => {
+    const months = new Set<string>();
+    let hasCurrent = false;
+    kioskMonthlyConsumptions.forEach((monthly) => {
+      Object.entries(monthly).forEach(([key, value]) => {
+        if (value > 0) {
+          months.add(key);
+          if (key === currentMonthKey) hasCurrent = true;
+        }
+      });
+    });
+    if (hasCurrent) return currentMonthKey;
+    const past = [...months].filter((m) => m < currentMonthKey).sort();
+    return past.length > 0 ? past[past.length - 1] : currentMonthKey;
+  }, [kioskMonthlyConsumptions, currentMonthKey]);
+
   const processedKiosksData = useMemo(() => {
     if (!Array.isArray(rawParksKiosks)) return [];
     return rawParksKiosks
@@ -991,7 +1158,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         const kiosksDaily = kiosksList.reduce((sum: number, k: any) => sum + Number(k?.consumption || 0), 0);
         const kiosksTotal = kiosksList.reduce((sum: number, k: any) => {
           const kioskMap = kioskMonthlyConsumptions.get(k?.id);
-          const monthlyVal = kioskMap ? (kioskMap[currentMonthKey] ?? 0) : Number(k?.totalConsumption || 0);
+          const monthlyVal = kioskMap ? (kioskMap[kioskDisplayMonthKey] ?? 0) : Number(k?.totalConsumption || 0);
           return sum + monthlyVal;
         }, 0);
 
@@ -1004,7 +1171,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           totalCount: kiosksList.length,
         };
       });
-  }, [rawParksKiosks, selectedParkIds, kioskMonthlyConsumptions, currentMonthKey]);
+  }, [rawParksKiosks, selectedParkIds, kioskMonthlyConsumptions, kioskDisplayMonthKey]);
 
   const currentItemsList = useMemo(() => {
     let list: any[] = [];
@@ -1872,12 +2039,14 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-center text-xs">
                   <div className="bg-gray-50 p-2.5 rounded-xl">
-                    <span className="text-gray-500 block mb-0.5">الاستهلاك اليومي</span>
-                    <span className="font-bold text-gray-800">{Math.round(park.kiosksDaily || 0).toLocaleString()} kWh</span>
+                    <span className="text-gray-500 block mb-0.5">متوسط الاستهلاك اليومي</span>
+                    <span className="font-bold text-gray-800">{formatKwh(park.kiosksDaily)} kWh</span>
                   </div>
                   <div className="bg-gray-50 p-2.5 rounded-xl">
-                    <span className="text-gray-500 block mb-0.5">إجمالي الشهر</span>
-                    <span className="font-bold text-gray-800">{Math.round(park.kiosksTotal || 0).toLocaleString()} kWh</span>
+                    <span className="text-gray-500 block mb-0.5">
+                      إجمالي الشهر{kioskDisplayMonthKey !== currentMonthKey ? ` (${kioskDisplayMonthKey})` : ""}
+                    </span>
+                    <span className="font-bold text-gray-800">{formatKwh(park.kiosksTotal)} kWh</span>
                   </div>
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
@@ -1898,7 +2067,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
                             <button onClick={(e) => { e.stopPropagation(); openPhotoModal(k); }} className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all">
                               <span>📷</span> صور العداد
                             </button>
-                            <span className="font-bold text-amber-600">{Math.round(Number(k.consumption || 0)).toLocaleString()} kWh</span>
+                            <span className="font-bold text-amber-600">{formatKwh(k.consumption)} kWh/يوم</span>
                             <span className={`w-2 h-2 rounded-full ${Number(k.consumption || 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
                           </div>
                         </div>
