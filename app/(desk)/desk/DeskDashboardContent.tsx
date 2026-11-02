@@ -160,10 +160,10 @@ export default function DeskDashboardContent({ data }: { data: any }) {
 
   // بيانات الأكشاك من جدول kiosks في الداتا بيز
   const [kiosksTableData, setKiosksTableData] = useState<any[]>([]);
-  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [kioskMonthlyConsumptions, setKioskMonthlyConsumptions] = useState>(new Map());
   const [kiosksLoadMessage, setKiosksLoadMessage] = useState<string>("");
 
-  // جلب الأكشاك وقراءاتها مباشرة باستخدام park_id المطابق لجدولك
+  // جلب الأكشاك وقراءاتها مباشرة مع تصفية المعطّل فقط
   useEffect(() => {
     const fetchKiosksAndReadings = async () => {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -175,7 +175,12 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       try {
-        const { data: kiosksRows, error: kiosksErr } = await supabase.from("kiosks").select("*");
+        // جلب الأكشاك النشطة فقط (is_active = true)
+        const { data: kiosksRows, error: kiosksErr } = await supabase
+          .from("kiosks")
+          .select("*")
+          .eq("is_active", true);
+
         if (kiosksErr) {
           console.error("Error fetching kiosks:", kiosksErr);
           setKiosksLoadMessage(`خطأ في جلب الأكشاك من الداتا بيز: ${kiosksErr.message}`);
@@ -183,7 +188,8 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         }
 
         if (!kiosksRows || kiosksRows.length === 0) {
-          setKiosksLoadMessage("لم يتم إرجاع أي أكشاك من جدول kiosks. غالباً صلاحيات القراءة (RLS) تمنع عرضها، راجع سياسة SELECT على الجدول.");
+          setKiosksLoadMessage("لم يتم إرجاع أي أكشاك نشطة.");
+          setKiosksTableData([]);
           return;
         }
 
@@ -236,7 +242,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     if (!rawParksElec || !Array.isArray(rawParksElec)) return [];
     return rawParksElec.map((park: any) => {
       const parkId = park?.id;
-      const parkKiosks = kiosksTableData.filter(k => String(k?.park_id) === String(parkId));
+      const parkKiosks = kiosksTableData.filter(k => String(k?.park_id) === String(parkId) && k?.is_active !== false);
       return {
         ...park,
         kiosks: parkKiosks
@@ -279,9 +285,9 @@ export default function DeskDashboardContent({ data }: { data: any }) {
   const [selectedPhotoMonth, setSelectedPhotoMonth] = useState<string>("");
 
   // Monthly consumption delta maps
-  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
-  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
-  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState<Map<string, { [monthKey: string]: number }>>(new Map());
+  const [meterMonthlyConsumptions, setMeterMonthlyConsumptions] = useState>(new Map());
+  const [waterMeterMonthlyConsumptions, setWaterMeterMonthlyConsumptions] = useState>(new Map());
+  const [solarMonthlyConsumptions, setSolarMonthlyConsumptions] = useState>(new Map());
 
   useEffect(() => {
     if (currentRawParks && Array.isArray(currentRawParks) && currentRawParks.length > 0) {
@@ -326,7 +332,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         if (Array.isArray(rawParksElec)) {
           rawParksElec.forEach((park: any) => {
             if (park && Array.isArray(park.meters)) {
-              park.meters.forEach((m: any) => { if (m?.id) elecMeterIds.push(m.id); });
+              park.meters.forEach((m: any) => { if (m?.id && m?.is_active !== false) elecMeterIds.push(m.id); });
             }
           });
         }
@@ -342,7 +348,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         if (Array.isArray(rawParksWater)) {
           rawParksWater.forEach((park: any) => {
             if (park && Array.isArray(park.meters)) {
-              park.meters.forEach((m: any) => { if (m?.id) waterMeterIds.push(m.id); });
+              park.meters.forEach((m: any) => { if (m?.id && m?.is_active !== false) waterMeterIds.push(m.id); });
             }
           });
         }
@@ -358,7 +364,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         if (Array.isArray(rawParksSolar)) {
           rawParksSolar.forEach((park: any) => {
             if (park && Array.isArray(park.inverters)) {
-              park.inverters.forEach((inv: any) => { if (inv?.id) inverterIds.push(inv.id); });
+              park.inverters.forEach((inv: any) => { if (inv?.id && inv?.is_active !== false) inverterIds.push(inv.id); });
             }
           });
         }
@@ -450,7 +456,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return item?.code || item?.meter_code || item?.id || "";
   };
 
-  // استخراج وتقسيم التنبيهات (عاجل وهام / ملاحظات عامة)
+  // استخراج وتقسيم التنبيهات مع استبعاد العدادات المعطلة
   const categorizedAlerts = useMemo(() => {
     const important: { id: string; title: string; message: string }[] = [];
     const normal: { id: string; title: string; message: string }[] = [];
@@ -459,6 +465,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       rawParksElec.forEach((park: any) => {
         if (park && Array.isArray(park.meters)) {
           park.meters.forEach((m: any) => {
+            if (m?.is_active === false) return; // تصفية المعطل
             const consumption = Number(m?.consumption || 0);
             const deviceName = getDeviceName(m);
 
@@ -484,6 +491,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       rawParksWater.forEach((park: any) => {
         if (park && Array.isArray(park.meters)) {
           park.meters.forEach((m: any) => {
+            if (m?.is_active === false) return; // تصفية المعطل
             const consumption = Number(m?.consumption || 0);
             const deviceName = getDeviceName(m);
             if (consumption > 20000) {
@@ -707,6 +715,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           rawParksElec.forEach((park: any) => {
             if (park && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
               park.meters.forEach((m: any) => {
+                if (m?.is_active === false) return; // تصفية المعطل
                 const cat = String(m?.category || "").trim().toUpperCase();
                 if (m?.id && (cat === "MEDIUM" || cat === "MED" || cat.includes("MEDIUM") || !cat)) {
                   meterIds.push(m.id);
@@ -721,7 +730,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
           rawParksElec.forEach((park: any) => {
             if (park && selectedParkIds.includes(park.id) && Array.isArray(park.meters)) {
               park.meters.forEach((m: any) => {
-                if (m?.id) {
+                if (m?.id && m?.is_active !== false) {
                   meterIds.push(m.id);
                   meterToParkMap.set(m.id, park.id);
                 }
@@ -845,6 +854,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       rawParksElec.forEach((park: any) => {
         if (park && Array.isArray(park.meters)) {
           park.meters.forEach((m: any) => {
+            if (m?.is_active === false) return; // تصفية المعطل
             const cat = String(m?.category || "").trim().toUpperCase();
             if (cat === "MEDIUM" || cat === "MED" || cat.includes("MEDIUM")) {
               daily += Number(m?.consumption || 0);
@@ -872,6 +882,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       rawParksSolar.forEach((park: any) => {
         if (park && Array.isArray(park.inverters)) {
           park.inverters.forEach((inv: any) => {
+            if (inv?.is_active === false) return; // تصفية المعطل
             const invMap = solarMonthlyConsumptions.get(inv?.id);
             const val = invMap ? (invMap[currentMonthKey] ?? 0) : Number(inv?.totalYield || 0);
             sumMonth += val;
@@ -888,6 +899,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       rawParksWater.forEach((park: any) => {
         if (park && Array.isArray(park.meters)) {
           park.meters.forEach((m: any) => {
+            if (m?.is_active === false) return; // تصفية المعطل
             const waterMap = waterMeterMonthlyConsumptions.get(m?.id);
             const val = waterMap ? (waterMap[currentMonthKey] ?? 0) : Number(m?.totalConsumption || 0);
             sumMonth += val;
@@ -898,6 +910,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
     return sumMonth;
   }, [rawParksWater, waterMeterMonthlyConsumptions, currentMonthKey]);
 
+  // معالجة بيانات الكهرباء واستبعاد العدادات المعطلة تماماً
   const processedElecData = useMemo(() => {
     if (!Array.isArray(rawParksElec)) return [];
     return rawParksElec
@@ -905,6 +918,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       .map((park: any) => {
         const allMeters = park?.meters || [];
         const electricMeters = allMeters.filter((m: any) => {
+          if (m?.is_active === false) return false; // إخفاء المعطل فوراً
           const cat = String(m?.category || "").trim().toUpperCase();
           if (selectedCategory.toUpperCase() === "MEDIUM") {
             return cat === "MEDIUM" || cat === "MED" || cat.includes("MEDIUM") || !cat;
@@ -933,12 +947,13 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       });
   }, [rawParksElec, selectedParkIds, selectedCategory, parkAveragesMap, meterMonthlyConsumptions, currentMonthKey]);
 
+  // معالجة بيانات المياه واستبعاد المعطل منها
   const processedWaterData = useMemo(() => {
     if (!Array.isArray(rawParksWater)) return [];
     return rawParksWater
       .filter((park: any) => park && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const meters = park?.meters || [];
+        const meters = (park?.meters || []).filter((m: any) => m?.is_active !== false);
         const waterDaily = meters.reduce((sum: number, m: any) => sum + Number(m?.consumption || 0), 0);
         const waterTotal = meters.reduce((sum: number, m: any) => {
           const waterMonthlyMap = waterMeterMonthlyConsumptions.get(m?.id);
@@ -957,12 +972,13 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       });
   }, [rawParksWater, selectedParkIds, waterMeterMonthlyConsumptions, currentMonthKey]);
 
+  // معالجة بيانات الشمسية واستبعاد المعطل منها
   const processedSolarData = useMemo(() => {
     if (!Array.isArray(rawParksSolar)) return [];
     return rawParksSolar
       .filter((park: any) => park && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const inverters = park?.inverters || [];
+        const inverters = (park?.inverters || []).filter((i: any) => i?.is_active !== false);
         const solarDaily = inverters.reduce((sum: number, i: any) => sum + Number(i?.yield || 0), 0);
         
         const solarTotal = inverters.reduce((sum: number, i: any) => {
@@ -982,12 +998,13 @@ export default function DeskDashboardContent({ data }: { data: any }) {
       });
   }, [rawParksSolar, selectedParkIds, solarMonthlyConsumptions, currentMonthKey]);
 
+  // معالجة بيانات الأكشاك واستبعاد المعطل منها
   const processedKiosksData = useMemo(() => {
     if (!Array.isArray(rawParksKiosks)) return [];
     return rawParksKiosks
       .filter((park: any) => park && selectedParkIds.includes(park.id))
       .map((park: any) => {
-        const kiosksList = park?.kiosks || [];
+        const kiosksList = (park?.kiosks || []).filter((k: any) => k?.is_active !== false);
         const kiosksDaily = kiosksList.reduce((sum: number, k: any) => sum + Number(k?.consumption || 0), 0);
         const kiosksTotal = kiosksList.reduce((sum: number, k: any) => {
           const kioskMap = kioskMonthlyConsumptions.get(k?.id);
@@ -1808,7 +1825,7 @@ export default function DeskDashboardContent({ data }: { data: any }) {
         </div>
       )}
 
-      {/* عرض تفاصيل الطاقة الشمسية (بدون كود بجانب اسم الانفرتر) */}
+      {/* عرض تفاصيل الطاقة الشمسية */}
       {activeTab === "solar" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {processedSolarData.map((park: any) => {
