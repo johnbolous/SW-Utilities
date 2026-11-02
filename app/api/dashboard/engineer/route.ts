@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
   }
 
   // ============================================================
-  // BUILDINGS
+  // BUILDINGS (Active only)
   // ============================================================
 
   const {
@@ -238,7 +238,7 @@ export async function GET(request: NextRequest) {
   );
 
   // ============================================================
-  // ASSETS
+  // ASSETS (Active only - filtering out is_active = false)
   // ============================================================
 
   const [
@@ -267,27 +267,22 @@ export async function GET(request: NextRequest) {
     supabase
       .from("meters")
       .select(
-        "id, building_id, label_en, meter_code"
+        "id, building_id, label_en, meter_code, is_active"
       )
       .in("building_id", targetBuildingIds)
       .eq("is_active", true),
 
-    // IMPORTANT:
-    // Water meters are not always linked to a building/park.
-    // Therefore we load all active water meters first
-    // and apply the access filter below.
-
     supabase
       .from("water_meters")
       .select(
-        "id, building_id, technology_park_id, label_en"
+        "id, building_id, technology_park_id, label_en, is_active"
       )
       .eq("is_active", true),
 
     supabase
       .from("solar_inverters")
       .select(
-        "id, building_id, label_en, meter_code"
+        "id, building_id, label_en, meter_code, is_active"
       )
       .in("building_id", targetBuildingIds)
       .eq("is_active", true),
@@ -309,34 +304,18 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const validMeters = meters ?? [];
-  const validInverters = inverters ?? [];
+  const validMeters = (meters ?? []).filter((m: any) => m.is_active !== false);
+  const validInverters = (inverters ?? []).filter((i: any) => i.is_active !== false);
 
   // ============================================================
-  // WATER METERS
+  // WATER METERS (Active only)
   // ============================================================
-  //
-  // FIX:
-  // A water meter can exist without building_id and
-  // technology_park_id.
-  //
-  // Previously those meters were discarded, which resulted in:
-  //
-  // waterMeters: 0
-  // waterHistory: []
-  // waterByPark: []
-  //
-  // Unassigned water meters are therefore included so their
-  // readings still appear in the Engineer Dashboard.
-  //
-  // If a water meter has a park/building assignment, it is
-  // restricted to the engineer's authorized parks.
-  //
 
   const validWaterMeters = (
     waterMetersAll ?? []
   ).filter((w: any) => {
-    // Direct park assignment
+    if (w.is_active === false) return false;
+
     if (
       w.technology_park_id &&
       parkIds.includes(w.technology_park_id)
@@ -344,7 +323,6 @@ export async function GET(request: NextRequest) {
       return true;
     }
 
-    // Building assignment
     if (
       w.building_id &&
       buildingIds.includes(w.building_id)
@@ -352,8 +330,6 @@ export async function GET(request: NextRequest) {
       return true;
     }
 
-    // IMPORTANT:
-    // Keep water meters that have no location assignment.
     if (
       !w.technology_park_id &&
       !w.building_id
@@ -603,6 +579,8 @@ export async function GET(request: NextRequest) {
           w.id === r.water_meter_id
       );
 
+    if (!meter) continue;
+
     let name = "Unassigned";
 
     if (meter?.building_id) {
@@ -690,10 +668,6 @@ export async function GET(request: NextRequest) {
           Math.round(value),
       })
     );
-
-  // WATER HISTORY
-  // This now receives all valid water meters,
-  // including unassigned ones.
 
   const waterHistory =
     aggregateHistory(
