@@ -18,8 +18,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const labelEn = typeof body.labelEn === "string" ? body.labelEn.trim() : undefined;
   const readingFrequency = body.readingFrequency;
   
-  // استقبال وتحديث حالة الـ is_active (تعطيل / تفعيل)
-  const isActive = body.is_active !== undefined ? Boolean(body.is_active) : undefined;
+  // دعم كلا التسميتين (is_active أو isActive) لضمان العمل مع أي زر أو نموذج في الواجهة
+  const rawActive = body.is_active !== undefined ? body.is_active : body.isActive;
+  const isActive = rawActive !== undefined ? Boolean(rawActive) : undefined;
 
   const monthlyReadingDay = 
     body.monthlyReadingDay !== undefined 
@@ -34,7 +35,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (roomCode !== undefined) updateData.room_code = roomCode || null;
   if (labelEn !== undefined) updateData.label_en = labelEn;
   if (readingFrequency !== undefined) updateData.reading_frequency = readingFrequency;
-  if (isActive !== undefined) updateData.is_active = isActive; // <--- تحديث الحالة بنجاح
+  if (isActive !== undefined) updateData.is_active = isActive; // <--- تحديث الحالة في قاعدة البيانات
   if (monthlyReadingDay !== undefined) updateData.monthly_reading_day = monthlyReadingDay;
   if (sortOrder !== undefined) updateData.sort_order = sortOrder;
 
